@@ -4,9 +4,9 @@ Effective date: November 1, 2026
 
 ## Overview
 
-Jynx is developed by R3F Studio. This policy explains the privacy behavior of the Jynx CLI, agent harness, SDKs, and official clients distributed by R3F Studio. It covers our software and project channels; separately operated applications, model providers, websites, and integrations have their own privacy practices.
+Jynx is developed by R3F Studio. This policy explains the privacy behavior of the Jynx CLI, agent harness, SDKs, and official clients distributed by R3F Studio. It covers Jynx software and R3F Studio's project channels; separately operated applications, model providers, websites, and integrations have their own privacy practices.
 
-R3F Studio does not operate a built-in Jynx account service or a central service that receives your conversations, project files, model inputs, or generated answers. Official Jynx software does not include built-in advertising trackers, usage analytics, or an automatic crash-report upload service. We do not receive your local conversations merely because you install or use Jynx.
+R3F Studio does not operate a built-in Jynx account service or a central service that receives your conversations, project files, model inputs, or generated answers. Official Jynx software does not include built-in advertising trackers, usage analytics, or an automatic crash-report upload service. R3F Studio does not receive your local conversations merely because you install or use Jynx.
 
 Local inference does not mean every feature is offline. Update checks, downloads, remote model APIs, searches, websites, and integrations can make network requests. The sections below explain those paths and the choices available to you.
 
@@ -66,7 +66,7 @@ If another developer incorporates a Jynx SDK or harness into an application, tha
 
 R3F Studio can receive information you voluntarily submit through GitHub Issues, pull requests, discussions, or other project communications. Examples include your public account name, message content, code contributions, and files or diagnostics you attach. This is different from automatic collection by the installed software.
 
-We use voluntarily submitted information to answer questions, investigate reported problems, maintain the project, and handle requests. GitHub controls the hosting of project communications and its account records. Public posts may be visible to other people, copied, indexed, or retained in platform history. Do not include passwords, API keys, private conversations, personal documents, or confidential source code in public reports.
+R3F Studio uses voluntarily submitted information to answer questions, investigate reported problems, maintain the project, and handle requests. GitHub controls the hosting of project communications and its account records. Public posts may be visible to other people, copied, indexed, or retained in platform history. Do not include passwords, API keys, private conversations, personal documents, or confidential source code in public reports.
 
 ## Retention and removal
 
@@ -74,7 +74,7 @@ Local conversations, settings, caches, downloaded models, and diagnostics remain
 
 Uninstalling Jynx is intended to remove installed program files. It does not promise to erase all models, project files, conversation stores, browser data, credentials, backups, or information already sent to an external service. Use the relevant client's deletion controls and remove unwanted local state and backups separately. Review paths before deleting anything important.
 
-R3F Studio cannot remotely read, export, or erase local data that it does not hold. Requests concerning a model provider, website, registry, or integration should also be directed to that operator. Voluntary project communications remain subject to the project's maintenance needs and the hosting platform's retention, deletion, and legal requirements; we do not promise a universal retention period for records controlled by those platforms.
+R3F Studio cannot remotely read, export, or erase local data that it does not hold. Requests concerning a model provider, website, registry, or integration should also be directed to that operator. Voluntary project communications remain subject to the project's maintenance needs and the hosting platform's retention, deletion, and legal requirements; R3F Studio does not promise a universal retention period for records controlled by those platforms.
 
 ## Your choices
 
@@ -93,15 +93,15 @@ This does not mean all conversations, files, logs, or settings are encrypted. An
 
 ## Personal information, legal rights, and international services
 
-R3F Studio does not sell local Jynx conversations or use a built-in advertising-data collection system. If we hold information you voluntarily provided, applicable law may give you rights concerning access, correction, deletion, objection, or other handling of that information. Which rights apply depends on your circumstances and the relevant law. We will consider requests concerning information we actually hold; we cannot supply data that remained solely on your device.
+R3F Studio does not sell local Jynx conversations or use a built-in advertising-data collection system. If R3F Studio holds information you voluntarily provided, applicable law may give you rights concerning access, correction, deletion, objection, or other handling of that information. Which rights apply depends on your circumstances and the relevant law. R3F Studio will consider requests concerning information it actually holds; it cannot supply data that remained solely on your device.
 
 External providers may process information in other countries and under different laws. Choosing a provider or integration can create an international transfer of the information sent to it. Review that provider's terms, settings, and privacy information for details.
 
-Jynx is a general-purpose development tool, not a service specifically directed to children. R3F Studio does not intentionally solicit children's personal information through the software. Contact us if you believe a child has submitted personal information to a project channel.
+Jynx is a general-purpose development tool, not a service specifically directed to children. R3F Studio does not intentionally solicit children's personal information through the software. Contact R3F Studio if you believe a child has submitted personal information to a project channel.
 
 ## Contact
 
-For general privacy questions, use [R3F Studio's Jynx issue tracker](https://github.com/R3FStudio/Jynx/issues) and label the subject as a privacy question. Do not post personal information, credentials, or private records. If a request needs sensitive details, first ask for a suitable private contact method without including those details in the public issue. We may need proportionate information to understand a request or establish that you are entitled to make it.
+For general privacy questions, use [R3F Studio's Jynx issue tracker](https://github.com/R3FStudio/Jynx/issues) and label the subject as a privacy question. Do not post personal information, credentials, or private records. If a request needs sensitive details, first ask for a suitable private contact method without including those details in the public issue. R3F Studio may need proportionate information to understand a request or establish that you are entitled to make it.
 
 ## Changes to this policy
 
