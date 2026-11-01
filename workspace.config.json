@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "buildOrder": [
+    "tooling",
+    "desktop",
+    "harness",
+    "cli",
+    "sdk-js",
+    "sdk-python"
+  ],
+  "packages": {
+    "tooling": {
+      "path": "tools/tooling",
+      "name": "@jynx/tooling"
+    },
+    "desktop": {
+      "path": "packages/private/Desktop",
+      "name": "@jynx/desktop",
+      "standalone": true
+    },
+    "harness": {
+      "path": "packages/harness",
+      "name": "@jynx/harness"
+    },
+    "cli": {
+      "path": "packages/cli",
+      "name": "@jynx/cli",
+      "sourceDependencies": [
+        "harness"
+      ]
+    },
+    "sdk-js": {
+      "path": "packages/sdk-js",
+      "name": "@jynx/sdk"
+    },
+    "sdk-python": {
+      "path": "packages/sdk-python",
+      "name": "@jynx/sdk-python"
+    }
+  },
+  "visibility": "public"
+}

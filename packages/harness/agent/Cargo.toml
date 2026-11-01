@@ -1,0 +1,27 @@
+[package]
+name = "jynx-agent"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+jynx-context = { path = "../context" }
+jynx-model = { path = "../model" }
+jynx-mcp = { path = "../mcp" }
+jynx-protocol = { path = "../protocol" }
+jynx-sandbox = { path = "../sandbox" }
+jynx-security = { path = "../security" }
+jynx-tools = { path = "../tools" }
+serde_json.workspace = true
+uuid.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

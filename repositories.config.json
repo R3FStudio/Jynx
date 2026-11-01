@@ -1,0 +1,14 @@
+{
+  "public": {
+    "remote": "https://github.com/R3FStudio/Jynx.git",
+    "visibility": "public"
+  },
+  "linked": [
+    {
+      "id": "desktop",
+      "path": "packages/private/Desktop",
+      "remote": "https://github.com/R3FStudio/Jynx-Desktop.git",
+      "visibility": "private"
+    }
+  ]
+}

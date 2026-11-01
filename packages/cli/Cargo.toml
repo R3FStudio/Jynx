@@ -1,0 +1,30 @@
+[package]
+authors = ["R3F Studio"]
+license = "GPL-3.0-only"
+name = "jynx-cli"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.88"
+
+[[bin]]
+name = "jynx-cli"
+path = "cli.rs"
+
+[dependencies]
+semver = "1"
+sha2 = "0.10"
+flate2 = "1"
+tar = "0.4"
+anyhow = "1.0"
+jynx-server = { path = "../harness/server" }
+jynx-context = { path = "../harness/context" }
+jynx-agent = { path = "../harness/agent" }
+jynx-mcp = { path = "../harness/mcp" }
+jynx-protocol = { path = "../harness/protocol" }
+jynx-storage = { path = "../harness/storage" }
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+
+[workspace]
+resolver = "2"

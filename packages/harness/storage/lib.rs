@@ -1,0 +1,369 @@
+use anyhow::{Result, anyhow};
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
+use tokio::fs;
+
+#[derive(Debug, Clone)]
+pub struct JsonStore {
+    root: PathBuf,
+}
+
+impl JsonStore {
+    pub fn new(root: impl AsRef<Path>) -> Self {
+        Self {
+            root: root.as_ref().to_path_buf(),
+        }
+    }
+    pub async fn write<T: Serialize>(&self, key: &str, value: &T) -> Result<()> {
+        fs::create_dir_all(&self.root).await?;
+        fs::write(
+            self.root.join(format!("{key}.json")),
+            serde_json::to_vec_pretty(value)?,
+        )
+        .await?;
+        Ok(())
+    }
+    pub async fn read<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        match fs::read(self.root.join(format!("{key}.json"))).await {
+            Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ChatStore {
+    store: JsonStore,
+}
+
+impl ChatStore {
+    pub fn new(root: impl AsRef<Path>) -> Self {
+        Self {
+            store: JsonStore::new(root),
+        }
+    }
+
+    async fn read_threads(&self) -> Result<Vec<Value>> {
+        Ok(self
+            .store
+            .read::<Vec<Value>>("threads")
+            .await?
+            .unwrap_or_default())
+    }
+
+    async fn write_threads(&self, threads: &[Value]) -> Result<()> {
+        self.store.write("threads", &threads).await
+    }
+
+    fn id_of(value: &Value) -> &str {
+        value["id"].as_str().unwrap_or_default()
+    }
+
+    pub async fn list(&self, archived: bool, search: Option<&str>) -> Result<Value> {
+        let mut threads = self.read_threads().await?;
+        let needle = search.unwrap_or_default().trim().to_lowercase();
+        threads.retain(|thread| {
+            let is_archived = thread["archived"].as_bool().unwrap_or(false);
+            if is_archived != archived {
+                return false;
+            }
+            if needle.is_empty() {
+                return true;
+            }
+            thread.to_string().to_lowercase().contains(&needle)
+        });
+        threads.sort_by(|a, b| {
+            let left = a["updatedAt"]
+                .as_i64()
+                .or_else(|| a["updated_at"].as_i64())
+                .unwrap_or(0);
+            let right = b["updatedAt"]
+                .as_i64()
+                .or_else(|| b["updated_at"].as_i64())
+                .unwrap_or(0);
+            right.cmp(&left)
+        });
+        Ok(json!({"data":threads,"nextCursor":Value::Null}))
+    }
+
+
+
+    pub async fn list_summaries(&self, archived: bool, search: Option<&str>) -> Result<Value> {
+        let mut response=self.list(archived,None).await?;
+        let query=search.unwrap_or_default().to_lowercase();
+        let terms=query.split_whitespace().collect::<Vec<_>>();
+        if let Some(threads)=response["data"].as_array_mut(){
+            if !terms.is_empty(){threads.retain(|thread|{let text=thread.to_string().to_lowercase();terms.iter().all(|term|text.contains(term))});}
+            for thread in threads {
+                let preview=thread["preview"].as_str().or_else(||thread["title"].as_str()).or_else(|| {
+                    thread["turns"].as_array()?.iter().flat_map(|turn|turn["items"].as_array().into_iter().flatten())
+                      .find(|item|item["type"]=="userMessage")?["content"].as_array()?.iter()
+                      .find(|part|part["type"]=="text")?["text"].as_str()
+                }).unwrap_or("").chars().take(240).collect::<String>();
+                let turn_count=thread["turns"].as_array().map(Vec::len).unwrap_or(0);
+                let mut original=std::mem::take(thread);
+                let mut summary=serde_json::Map::new();
+                for key in ["id","name","title","cwd","model","modelProvider","model_provider","createdAt","created_at","updatedAt","updated_at","archived","tokenUsage","token_usage","status"] {
+                    if let Some(value)=original.as_object_mut().and_then(|object|object.remove(key)){summary.insert(key.into(),value);}
+                }
+                if !summary.contains_key("title")&&!preview.is_empty(){summary.insert("title".into(),json!(preview));}
+                summary.insert("preview".into(),json!(preview));summary.insert("turnCount".into(),json!(turn_count));
+                *thread=Value::Object(summary);
+            }
+        }
+        Ok(response)
+    }
+
+    pub async fn save(&self, thread: Value) -> Result<Value> {
+        let id = Self::id_of(&thread).to_string();
+        if id.is_empty() {
+            return Err(anyhow!("thread is missing id"));
+        }
+        let mut threads = self.read_threads().await?;
+        threads.retain(|entry| Self::id_of(entry) != id);
+        threads.insert(0, thread.clone());
+        self.write_threads(&threads).await?;
+        Ok(json!({"thread":thread}))
+    }
+
+    pub async fn set_message_feedback(&self,id:&str,message_id:&str,feedback:Option<&str>,updated_at:u64)->Result<Value>{
+        if feedback.is_some_and(|value|value!="like"&&value!="dislike"){return Err(anyhow!("invalid message rating"));}
+        let mut threads=self.read_threads().await?;
+        let thread=threads.iter_mut().find(|thread|Self::id_of(thread)==id).ok_or_else(||anyhow!("thread not found"))?;
+        let turns=thread["turns"].as_array_mut().ok_or_else(||anyhow!("thread has no turns"))?;
+        let mut found=false;
+        for turn in turns{
+            if !matches!(turn["status"].as_str(),Some("completed"|"complete"|"succeeded"|"success")){continue;}
+            let Some(items)=turn["items"].as_array_mut() else{continue;};
+            let last=items.iter().rposition(|item|item["type"]=="agentMessage"&&item["delivery"]!="async"&&!item["text"].as_str().unwrap_or("").trim().is_empty());
+            let Some(index)=last else{continue;};
+            if items[index]["id"]!=message_id{continue;}
+            let item=items[index].as_object_mut().ok_or_else(||anyhow!("invalid answer"))?;
+            if let Some(value)=feedback{item.insert("feedback".into(),json!(value));}else{item.remove("feedback");}
+            item.insert("feedbackUpdatedAt".into(),json!(updated_at));
+            found=true;break;
+        }
+        if !found{return Err(anyhow!("completed answer not found"));}
+        self.write_threads(&threads).await?;
+        Ok(json!({"ok":true}))
+    }
+
+    pub async fn read(&self, id: &str) -> Result<Value> {
+        let thread = self
+            .read_threads()
+            .await?
+            .into_iter()
+            .find(|entry| Self::id_of(entry) == id);
+        Ok(json!({"thread":thread}))
+    }
+
+    pub async fn turns(&self, id: &str) -> Result<Value> {
+        let thread = self
+            .read_threads()
+            .await?
+            .into_iter()
+            .find(|entry| Self::id_of(entry) == id);
+        let turns = thread
+            .and_then(|entry| entry["turns"].as_array().cloned())
+            .unwrap_or_default();
+        Ok(json!({"data":turns,"nextCursor":Value::Null}))
+    }
+
+    pub async fn set_archived(&self, id: &str, archived: bool) -> Result<Value> {
+        let mut threads = self.read_threads().await?;
+        for thread in &mut threads {
+            if Self::id_of(thread) == id {
+                thread["archived"] = Value::Bool(archived);
+            }
+        }
+        self.write_threads(&threads).await?;
+        Ok(json!({"ok":true}))
+    }
+
+    pub async fn rename(&self, id: &str, name: &str) -> Result<Value> {
+        let mut threads = self.read_threads().await?;
+        for thread in &mut threads {
+            if Self::id_of(thread) == id {
+                thread["name"] = Value::String(name.to_string());
+                thread["title"] = Value::String(name.to_string());
+            }
+        }
+        self.write_threads(&threads).await?;
+        Ok(json!({"ok":true}))
+    }
+
+    pub async fn delete(&self, id: &str) -> Result<Value> {
+        let mut threads = self.read_threads().await?;
+        let before = threads.len();
+        threads.retain(|entry| Self::id_of(entry) != id);
+        self.write_threads(&threads).await?;
+        Ok(json!({"ok":threads.len() != before}))
+    }
+
+    pub async fn fork(&self, id: &str) -> Result<Value> {
+        let mut threads = self.read_threads().await?;
+        let Some(mut thread) = threads
+            .iter()
+            .find(|entry| Self::id_of(entry) == id)
+            .cloned()
+        else {
+            return Ok(json!({}));
+        };
+        let new_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp_millis();
+        let title = thread["title"].as_str().unwrap_or("Chat").to_string();
+        thread["id"] = Value::String(new_id);
+        thread["title"] = Value::String(format!("{title} — Copy"));
+        let copied_title = thread["title"].clone();
+        thread["name"] = copied_title;
+        thread["createdAt"] = json!(now);
+        thread["updatedAt"] = json!(now);
+        threads.insert(0, thread.clone());
+        self.write_threads(&threads).await?;
+        Ok(json!({"thread":thread}))
+    }
+}
+
+fn merge_json(target: &mut Value, patch: Value) {
+    match (target, patch) {
+        (Value::Object(target), Value::Object(patch)) => {
+            for (key, value) in patch {
+                if value.is_null() {
+                    target.remove(&key);
+                } else if let Some(existing) = target.get_mut(&key) {
+                    merge_json(existing, value);
+                } else {
+                    target.insert(key, value);
+                }
+            }
+        }
+        (target, patch) => *target = patch,
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeStateStore {
+    store: JsonStore,
+}
+
+impl RuntimeStateStore {
+    pub fn new(root: impl AsRef<Path>) -> Self {
+        Self {
+            store: JsonStore::new(root),
+        }
+    }
+
+    pub async fn read(&self) -> Result<Value> {
+        Ok(self
+            .store
+            .read::<Value>("runtime-state")
+            .await?
+            .unwrap_or_else(|| json!({})))
+    }
+
+    pub async fn update(&self, patch: Value) -> Result<Value> {
+        if !patch.is_object() {
+            return Err(anyhow!("runtime state patch must be an object"));
+        }
+        let mut state = self.read().await?;
+        if !state.is_object() {
+            state = json!({});
+        }
+        merge_json(&mut state, patch);
+        self.store.write("runtime-state", &state).await?;
+        Ok(json!({"state":state}))
+    }
+
+    pub async fn clear(&self) -> Result<Value> {
+        let state = json!({});
+        self.store.write("runtime-state", &state).await?;
+        Ok(json!({"state":state}))
+    }
+}
+
+pub fn default_state_root() -> PathBuf {
+    std::env::var_os("JYNX_STATE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            migrate_state_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+        })
+}
+
+
+fn migrate_state_root(parent: &Path) -> PathBuf {
+    let current = parent.join(".jynx-state");
+    let legacy = parent.join(".daemon-state");
+    if current.exists() || !legacy.exists() { return current; }
+    match std::fs::rename(&legacy, &current) {
+        Ok(()) => current,
+        Err(_) => legacy,
+    }
+}
+
+#[cfg(test)]
+mod feedback_tests{
+    use super::*;
+    #[tokio::test]
+    async fn independent_ratings_preserve_other_messages_and_clear_after_reopening(){
+        let root=std::env::temp_dir().join(format!("jynx-feedback-test-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let store=ChatStore::new(&root);
+        store.save(json!({"id":"synthetic","turns":[
+            {"id":"one","status":"completed","items":[{"id":"one","type":"agentMessage","text":"Synthetic first answer"}]},
+            {"id":"two","status":"completed","items":[{"id":"two","type":"agentMessage","text":"Synthetic second answer"}]},
+            {"id":"live","status":"inProgress","items":[{"id":"live","type":"agentMessage","text":"Synthetic active content"}]}
+        ]})).await.unwrap();
+        store.set_message_feedback("synthetic","one",Some("like"),1).await.unwrap();
+        store.set_message_feedback("synthetic","two",Some("dislike"),2).await.unwrap();
+        let reopened=ChatStore::new(&root);
+        let read=reopened.read("synthetic").await.unwrap();
+        assert_eq!(read["thread"]["turns"][0]["items"][0]["feedback"],"like");
+        assert_eq!(read["thread"]["turns"][1]["items"][0]["feedback"],"dislike");
+        assert_eq!(read["thread"]["turns"][2]["items"][0]["text"],"Synthetic active content");
+        assert!(reopened.set_message_feedback("synthetic","live",Some("like"),3).await.is_err());
+        assert!(reopened.set_message_feedback("synthetic","one",Some("other"),3).await.is_err());
+        reopened.set_message_feedback("synthetic","one",None,4).await.unwrap();
+        assert!(reopened.read("synthetic").await.unwrap()["thread"]["turns"][0]["items"][0].get("feedback").is_none());
+        std::fs::remove_file(root.join("threads.json")).unwrap();std::fs::remove_dir(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod summary_tests {
+ use super::*;
+ #[tokio::test]
+ async fn sidebar_summaries_preserve_search_and_full_storage_without_sending_audits(){
+  let root=std::env::temp_dir().join(format!("jynx-summary-test-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+  let store=ChatStore::new(&root);let raw="SYNTHETIC_AUDIT_MATCH ".repeat(50_000);
+  let thread=json!({"id":"synthetic","cwd":"synthetic-workspace","updatedAt":42,"archived":false,"contextCheckpoint":{"messages":[{"role":"assistant","content":raw}],"throughTurnId":"old"},"turns":[{"id":"old","status":"completed","items":[{"id":"user","type":"userMessage","content":[{"type":"text","text":"Synthetic project question"}]},{"id":"tool","type":"fileRead","output":raw}]}]});
+  store.save(thread.clone()).await.unwrap();
+  let full=store.list(false,None).await.unwrap();let summary=store.list_summaries(false,None).await.unwrap();
+  assert_eq!(summary["data"][0]["preview"],"Synthetic project question");assert_eq!(summary["data"][0]["turnCount"],1);
+  assert!(summary["data"][0].get("turns").is_none());assert!(summary["data"][0].get("contextCheckpoint").is_none());
+  assert!(summary.to_string().len()*1000<full.to_string().len(),"summary should be over 1000x smaller than synthetic full data");
+  assert_eq!(store.list_summaries(false,Some("SYNTHETIC_AUDIT_MATCH")).await.unwrap()["data"].as_array().unwrap().len(),1);
+  assert_eq!(store.list_summaries(false,Some("SYNTHETIC_AUDIT_MATCH project")).await.unwrap()["data"].as_array().unwrap().len(),1);
+  assert_eq!(store.read("synthetic").await.unwrap()["thread"],thread,"summaries must not alter stored context");
+  println!("synthetic list bytes: full={}, summary={}",full.to_string().len(),summary.to_string().len());
+  std::fs::remove_file(root.join("threads.json")).unwrap();std::fs::remove_dir(root).unwrap();
+ }
+}
+
+#[cfg(test)]
+mod branding_migration_tests {
+    use super::*;
+    #[test]
+    fn standalone_state_moves_once_without_reading_or_replacing_existing_state() {
+        let parent=std::env::temp_dir().join(format!("jynx-branding-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&parent).unwrap();
+        let old=parent.join(".daemon-state");std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("fixture-marker.txt"),"synthetic marker").unwrap();
+        let current=migrate_state_root(&parent);assert_eq!(current,parent.join(".jynx-state"));
+        assert_eq!(std::fs::read_to_string(current.join("fixture-marker.txt")).unwrap(),"synthetic marker");
+        std::fs::create_dir(&old).unwrap();
+        assert_eq!(migrate_state_root(&parent),current);assert!(old.exists());
+        std::fs::remove_file(current.join("fixture-marker.txt")).unwrap();
+        for directory in [&old,&current,&parent] {std::fs::remove_dir(directory).unwrap();}
+    }
+}

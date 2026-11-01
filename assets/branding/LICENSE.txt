@@ -1,0 +1,8 @@
+Jynx artwork - CC0 1.0 Universal
+
+Applies to the Jynx SVG marks and their PNG, ICO, and ICNS renditions in this directory.
+
+To the extent copyright and related rights apply and may be waived, they are waived under CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+You may copy, modify, redistribute, and use these artwork files commercially without an attribution requirement. The artwork is provided without warranty. This dedication does not grant rights in third-party trademarks or establish trademark clearance for the name Jynx.

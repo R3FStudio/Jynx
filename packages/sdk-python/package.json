@@ -1,0 +1,12 @@
+{
+  "name": "@jynx/sdk-python",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Python SDK workspace commands",
+  "scripts": {
+    "build": "node scripts/run-python.mjs -m unittest discover -s tests",
+    "test": "node scripts/run-python.mjs -m unittest discover -s tests"
+  },
+  "author": "R3F Studio",
+  "license": "GPL-3.0-only"
+}

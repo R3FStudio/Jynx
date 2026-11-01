@@ -1,0 +1,23 @@
+{
+  "name": "@jynx/tooling",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Repository lint and formatting tools",
+  "scripts": {
+    "build": "node run.mjs lint",
+    "lint": "node run.mjs lint",
+    "format": "node run.mjs format",
+    "format:check": "node run.mjs format:check"
+  },
+  "devDependencies": {
+    "@babel/eslint-parser": "^8.0.5",
+    "@babel/preset-react": "^8.0.1",
+    "@babel/preset-typescript": "^8.0.1",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.6"
+  },
+  "author": "R3F Studio",
+  "license": "GPL-3.0-only"
+}

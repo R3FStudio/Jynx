@@ -1,0 +1,31 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/harness -> target
+            packages/cli -> target
+          cache-on-failure: true
+      - run: npm ci
+      - run: npm run docs:check
+      - run: npm run version:check
+      - run: npm run doctor
+      - run: npm run test:scripts
+      - run: npm run build:all:exclude-desktop
+      - run: cargo test --manifest-path packages/harness/Cargo.toml --workspace
+      - run: cargo test --manifest-path packages/cli/Cargo.toml

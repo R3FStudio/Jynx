@@ -1,0 +1,36 @@
+{
+  "name": "@jynx/sdk",
+  "version": "0.0.1",
+  "description": "JavaScript client for the Jynx local model API",
+  "type": "module",
+  "files": [
+    "src",
+    "types",
+    "README.md",
+    "LICENSE",
+    "COPYRIGHT"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./discovery": {
+      "types": "./types/discovery.d.ts",
+      "default": "./src/discovery/node.js"
+    },
+    "./harness": {
+      "types": "./types/harness.d.ts",
+      "default": "./src/harness/client.js"
+    }
+  },
+  "scripts": {
+    "build": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "GPL-3.0-only",
+  "author": "R3F Studio"
+}

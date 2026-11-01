@@ -1,0 +1,78 @@
+openapi: 3.1.0
+info:
+  title: Jynx Local Model API
+  version: 0.0.1
+  description: The opt-in loopback proxy to the currently loaded local GGUF model. The model server supplies the OpenAI-compatible response bodies.
+servers:
+  - url: http://127.0.0.1:12347
+    description: Default port; the user may configure another port.
+paths:
+  /health:
+    get:
+      summary: Check the loaded model server
+      responses:
+        '200':
+          description: Response from the loaded model server.
+        '503':
+          description: No local model is loaded.
+  /v1/models:
+    get:
+      summary: List models available through the loaded model server
+      responses:
+        '200':
+          description: OpenAI-compatible model list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id]
+                      properties:
+                        id: { type: string }
+        '503':
+          description: No local model is loaded.
+  /v1/chat/completions:
+    post:
+      summary: Create or stream a chat completion
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model: { type: string }
+                stream: { type: boolean, default: false }
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    required: [role, content]
+                    properties:
+                      role: { type: string }
+                      content: { type: string }
+      responses:
+        '200':
+          description: 'JSON completion, or SSE chunks ending with data: [DONE] when streaming.'
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+            text/event-stream:
+              schema: { type: string }
+        '401':
+          description: Missing or incorrect Local API key.
+        '503':
+          description: No local model is loaded.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

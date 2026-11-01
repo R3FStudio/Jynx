@@ -1,0 +1,14 @@
+{
+  "name": "@jynx/harness",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Jynx Rust agent runtime workspace",
+  "scripts": {
+    "build": "cargo build --release --manifest-path Cargo.toml -p jynx-server --bin jynx-harness",
+    "start": "cargo run --release --manifest-path Cargo.toml -p jynx-server --bin jynx-harness",
+    "check": "cargo check --manifest-path Cargo.toml --workspace",
+    "test": "cargo test --manifest-path Cargo.toml --workspace"
+  },
+  "author": "R3F Studio",
+  "license": "GPL-3.0-only"
+}

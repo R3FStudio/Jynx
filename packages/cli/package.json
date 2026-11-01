@@ -1,0 +1,14 @@
+{
+  "name": "@jynx/cli",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Standalone Jynx CLI",
+  "scripts": {
+    "build": "cargo build --release --manifest-path Cargo.toml --bin jynx-cli",
+    "start": "cargo run --manifest-path Cargo.toml --bin jynx-cli --",
+    "check": "cargo check --manifest-path Cargo.toml --bin jynx-cli",
+    "test": "cargo test --manifest-path Cargo.toml"
+  },
+  "author": "R3F Studio",
+  "license": "GPL-3.0-only"
+}

@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible problem in the desktop app, Harness, CLI, or SDK.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [Desktop, Harness, CLI, JavaScript SDK, Python SDK]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the command or UI path and the result you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, app version or commit, and relevant model/runtime details.

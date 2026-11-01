@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Jynx galaxy comet star</title>
+  <defs>
+    <linearGradient id="nebula" x1="38" y1="21" x2="91" y2="83" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EBD6FF"/><stop offset=".4" stop-color="#BB9AFF"/><stop offset=".72" stop-color="#9873E8"/><stop offset="1" stop-color="#E1B7F8"/>
+    </linearGradient>
+    <linearGradient id="comet" x1="13" y1="108" x2="58" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58C9BE"/><stop offset=".6" stop-color="#87EDDC"/><stop offset="1" stop-color="#DAFFF1"/>
+    </linearGradient>
+    <linearGradient id="dust" x1="47" y1="70" x2="86" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F0B8ED" stop-opacity="0"/><stop offset=".5" stop-color="#FFE1FA" stop-opacity=".7"/><stop offset="1" stop-color="#E5D4FF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="star"><path d="M88 9 Q91 4 91 11 L85 33 Q84 38 89 40 L113 47 Q120 49 113 52 L87 61 Q82 63 80 68 L72 91 Q70 97 67 91 L58 68 Q56 63 51 62 L26 57 Q19 55 25 51 L49 39 Q53 37 55 32 L63 13 Q66 7 68 14 L74 31 Q76 36 79 30 Z"/></clipPath>
+  </defs>
+  <path fill="url(#nebula)" d="M88 9 Q91 4 91 11 L85 33 Q84 38 89 40 L113 47 Q120 49 113 52 L87 61 Q82 63 80 68 L72 91 Q70 97 67 91 L58 68 Q56 63 51 62 L26 57 Q19 55 25 51 L49 39 Q53 37 55 32 L63 13 Q66 7 68 14 L74 31 Q76 36 79 30 Z"/>
+  <g clip-path="url(#star)">
+    <path fill="none" stroke="url(#dust)" stroke-width="10" d="M39 78 C52 57 88 65 92 23"/>
+    <path fill="#FFF3FF" d="m65 42 1.8 4.5 4.7 1.5-4.6 1.7-1.6 4.7-1.7-4.5-4.5-1.6 4.3-1.8z"/>
+    <circle cx="84" cy="49" r="1.5" fill="#F3E8FF"/>
+    <circle cx="62" cy="32" r="1" fill="#FFF3FF"/>
+  </g>
+  <path fill="url(#comet)" d="M49 75 C46 91 41 99 32 98 C25 98 22 93 20 88 Q19 85 16 87 L8 93 Q6 95 8 98 C13 110 23 117 35 115 C52 113 60 100 63 85 Z"/>
+  <path fill="#B7A1F5" d="m18 18 2.6 6.4 6.4 2.6-6.4 2.6L18 36l-2.6-6.4L9 27l6.4-2.6z"/>
+  <path fill="#9DE8D9" d="m108 77 2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/>
+</svg>

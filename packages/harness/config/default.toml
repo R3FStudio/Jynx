@@ -1,0 +1,6 @@
+runtime = "vulkan"
+context_size = 32768
+compact_at_ratio = 0.82
+retain_recent_messages = 12
+approval_mode = "ask"
+network = false

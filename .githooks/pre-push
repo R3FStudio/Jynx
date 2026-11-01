@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node "scripts/repositories.mjs" guard public "$2"
