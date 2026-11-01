@@ -1,6 +1,11 @@
 name: Publish SDK to GitHub Packages
 on:
   workflow_dispatch:
+    inputs:
+      replace_existing:
+        description: 'Attempt to replace the exact current version; restores the previous GitHub version if publishing fails'
+        type: boolean
+        default: false
   release:
     types: [published]
 permissions:
@@ -23,6 +28,19 @@ jobs:
       - run: npm ci
       - run: npm run version:check
       - run: npm run sdk:test:js
-      - run: npm run publish:sdk:github
+      - run: |
+          if [ "$REPLACE_EXISTING" = true ]; then
+            npm run publish:sdk:github -- --replace-existing
+          else
+            npm run publish:sdk:github
+          fi
         env:
+          REPLACE_EXISTING: ${{ inputs.replace_existing || false }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v7
+        if: always() && inputs.replace_existing
+        with:
+          name: github-sdk-replacement-backup
+          path: .cache/github-sdk-backup/*
+          if-no-files-found: ignore
+          retention-days: 7

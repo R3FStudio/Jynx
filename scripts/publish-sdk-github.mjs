@@ -27,9 +27,12 @@ async function verifyPublishedPackage() {
   const published = await response.json();
   if (published.repository?.full_name?.toLowerCase() !== repoName.toLowerCase()) throw new Error('The published SDK is not linked to its source repository.');
   console.log(JSON.stringify({package: published.name, url: published.html_url, repository: published.repository.full_name, visibility: published.visibility}));
+  return `https://api.github.com/${namespace}/${owner}/packages/npm/${packageName}`;
 }
 const dryRun = process.argv.includes('--dry-run');
-if (process.argv.slice(2).some(arg => arg !== '--dry-run')) throw new Error('Only --dry-run is supported.');
+const replaceExisting = process.argv.includes('--replace-existing');
+if (process.argv.slice(2).some(arg => !['--dry-run', '--replace-existing'].includes(arg))) throw new Error('Only --dry-run and --replace-existing are supported.');
+let existingVersion = null;
 if (!dryRun) {
   const token = process.env.NODE_AUTH_TOKEN;
   if (!token) throw new Error('GitHub Packages requires NODE_AUTH_TOKEN; use the publishing workflow.');
@@ -39,11 +42,12 @@ if (!dryRun) {
   });
   if (response.ok) {
     const metadata = await response.json();
-    if (metadata.versions?.[manifest.version]) {
+    if (metadata.versions?.[manifest.version] && !replaceExisting) {
       console.log(`${manifest.name}@${manifest.version} is already on GitHub Packages.`);
       await verifyPublishedPackage();
       process.exit(0);
     }
+    existingVersion = metadata.versions?.[manifest.version] ?? null;
   } else if (response.status !== 404) {
     throw new Error(`GitHub Packages version check failed: HTTP ${response.status}`);
   }
@@ -51,6 +55,8 @@ if (!dryRun) {
 const cache = path.join(root, '.cache');
 await mkdir(cache, {recursive: true});
 const stage = await mkdtemp(path.join(cache, 'github-sdk-'));
+let removedVersionUrl = null;
+let publishedReplacement = false;
 try {
   for (const entry of manifest.files) {
     const absolute = path.resolve(source, entry);
@@ -62,10 +68,43 @@ try {
   await writeFile(path.join(stage, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
   const args = [process.env.npm_execpath, 'publish', stage, '--access', 'public', '--registry=https://npm.pkg.github.com/', '--ignore-scripts', '--workspaces=false'];
   if (dryRun) args.push('--dry-run');
+  if (replaceExisting && existingVersion && !dryRun) {
+    const packageApi = await verifyPublishedPackage();
+    const headers = {Authorization: `Bearer ${process.env.NODE_AUTH_TOKEN}`, Accept: 'application/vnd.github+json'};
+    let version = null;
+    for (let page = 1; page <= 100; page++) {
+      const response = await fetch(`${packageApi}/versions?per_page=100&page=${page}`, {headers, signal: AbortSignal.timeout(30000)});
+      if (!response.ok) throw new Error(`Version listing failed: HTTP ${response.status}`);
+      const versions = await response.json();
+      version = versions.find(item => item.name === manifest.version);
+      if (version || versions.length < 100) break;
+    }
+    if (!version) throw new Error('The exact SDK version to replace could not be identified.');
+    const tarballUrl = new URL(existingVersion.dist.tarball);
+    if (tarballUrl.protocol !== 'https:' || tarballUrl.hostname !== 'npm.pkg.github.com') throw new Error('Unexpected GitHub tarball host.');
+    const archive = await fetch(tarballUrl, {headers: {Authorization: `Bearer ${process.env.NODE_AUTH_TOKEN}`}, signal: AbortSignal.timeout(30000)});
+    if (!archive.ok) throw new Error(`Existing package backup failed: HTTP ${archive.status}`);
+    const backup = path.join(cache, 'github-sdk-backup');
+    await mkdir(backup, {recursive: true});
+    await writeFile(path.join(backup, manifest.version + '.tgz'), Buffer.from(await archive.arrayBuffer()));
+    await writeFile(path.join(backup, manifest.version + '.json'), JSON.stringify(existingVersion, null, 2));
+    const versionUrl = `${packageApi}/versions/${version.id}`;
+    const removal = await fetch(versionUrl, {method: 'DELETE', headers, signal: AbortSignal.timeout(30000)});
+    if (removal.status !== 204) throw new Error(`Version removal failed: HTTP ${removal.status}`);
+    removedVersionUrl = versionUrl;
+    console.log(`Removed ${manifest.name}@${manifest.version} for the requested replacement.`);
+  }
   const result = spawnSync(process.execPath, args, {cwd: root, env: process.env, stdio: 'inherit'});
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`GitHub Packages publish failed (${result.status}).`);
+  publishedReplacement = true;
   if (!dryRun) await verifyPublishedPackage();
+} catch (error) {
+  if (removedVersionUrl && !publishedReplacement) {
+    const restoration = await fetch(removedVersionUrl + '/restore', {method: 'POST', headers: {Authorization: `Bearer ${process.env.NODE_AUTH_TOKEN}`, Accept: 'application/vnd.github+json'}, signal: AbortSignal.timeout(30000)});
+    console.error(`Replacement failed; restoring the previous GitHub version returned HTTP ${restoration.status}.`);
+  }
+  throw error;
 } finally {
   const relative = path.relative(cache, stage);
   if (!relative.startsWith('github-sdk-') || relative.includes(path.sep) || path.isAbsolute(relative)) throw new Error('Refusing to clean an unrelated staging folder.');
