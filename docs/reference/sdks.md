@@ -2,12 +2,12 @@
 
 JavaScript and Python HTTP clients need a compatible model API and its base URL. Importing a client does not start inference. The JavaScript Node-only subprocess client controls a built harness over JSON lines; use it for tools, approvals, context, state, and MCP.
 
-Install the JavaScript package with `npm install @r3fstudios/jynx-sdk`, or the Python package with `python -m pip install jynx-python-sdk`. For release maintainers, see [publishing SDK packages](../development/publishing-sdks.md).
+Install the JavaScript package with `npm install @r3fstudio/jynx-sdk`, or the Python package with `python -m pip install jynx-python-sdk`. For release maintainers, see [publishing SDK packages](../development/publishing-sdks.md).
 
 ## JavaScript HTTP
 
 ```js
-import { JynxClient } from '@r3fstudios/jynx-sdk';
+import { JynxClient } from '@r3fstudio/jynx-sdk';
 const client = new JynxClient({
   baseUrl: 'http://127.0.0.1:8080/v1',
   apiKey: process.env.JYNX_MODEL_API_KEY,
@@ -24,7 +24,7 @@ console.log(answer.choices[0].message.content);
 ## JavaScript harness subprocess
 
 ```js
-import { HarnessClient } from '@r3fstudios/jynx-sdk/harness';
+import { HarnessClient } from '@r3fstudio/jynx-sdk/harness';
 const harness = new HarnessClient({ binaryPath: '/path/to/jynx-harness' });
 try {
   console.log(await harness.diagnostics());

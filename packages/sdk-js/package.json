@@ -1,5 +1,5 @@
 {
-  "name": "@r3fstudios/jynx-sdk",
+  "name": "@r3fstudio/jynx-sdk",
   "version": "0.0.1",
   "description": "JavaScript and TypeScript clients for Jynx model APIs and the Jynx Harness",
   "type": "module",
@@ -38,7 +38,7 @@
     "url": "git+https://github.com/R3FStudio/Jynx.git",
     "directory": "packages/sdk-js"
   },
-  "homepage": "https://github.com/R3FStudio/Jynx/tree/main/docs/reference/sdks.md",
+  "homepage": "https://github.com/R3FStudio/Jynx/blob/main/docs/reference/sdks.md",
   "bugs": {
     "url": "https://github.com/R3FStudio/Jynx/issues"
   },

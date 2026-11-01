@@ -4,10 +4,10 @@ Jynx has two SDK distributions. Publish each to its language's package registry,
 
 | SDK | Registry | Published name | Install command |
 | --- | --- | --- | --- |
-| JavaScript and TypeScript | npm | `@r3fstudios/jynx-sdk` | `npm install @r3fstudios/jynx-sdk` |
+| JavaScript and TypeScript | npm | `@r3fstudio/jynx-sdk` | `npm install @r3fstudio/jynx-sdk` |
 | Python | PyPI | `jynx-python-sdk` | `python -m pip install jynx-python-sdk` |
 
-The npm organization is `r3fstudios`. PyPI does not use npm-style organization scopes: the Python distribution keeps its own project name, and its owners control who can publish it. Python imports stay `from jynx_sdk import JynxClient`.
+The npm organization is `r3fstudio`. PyPI does not use npm-style organization scopes: the Python distribution keeps its own project name, and its owners control who can publish it. Python imports stay `from jynx_sdk import JynxClient`.
 
 The Python workspace's `package.json` runs development commands; it is marked private and is not a second npm SDK. Publish the Python distribution described by `pyproject.toml` instead. Do not run a blanket publish across all workspaces.
 
@@ -35,10 +35,10 @@ An npm website session does not automatically log the terminal in. Authenticate 
 ```sh
 npm login --registry=https://registry.npmjs.org/
 npm whoami --registry=https://registry.npmjs.org/
-npm org ls r3fstudios --registry=https://registry.npmjs.org/
+npm org ls r3fstudio --registry=https://registry.npmjs.org/
 ```
 
-The account must have permission to publish public packages under `r3fstudios`. A missing scope or authorization error must be resolved by an organization owner. Complete any browser or two-factor authentication prompt from npm; do not save credentials in this repository.
+The account must have permission to publish public packages under `r3fstudio`. A missing scope or authorization error must be resolved by an organization owner. Complete any browser or two-factor authentication prompt from npm; do not save credentials in this repository.
 
 Publish the reviewed archive produced by `pack:sdk-js`. These PowerShell commands read the current manifest version, so there is no release number to maintain in this guide:
 
@@ -46,12 +46,12 @@ Publish the reviewed archive produced by `pack:sdk-js`. These PowerShell command
 $version = (Get-Content packages/sdk-js/package.json | ConvertFrom-Json).version
 npm publish "./dist/Jynx-JavaScript-SDK-v$version.tgz" --access public --registry=https://registry.npmjs.org/ --dry-run
 npm publish "./dist/Jynx-JavaScript-SDK-v$version.tgz" --access public --registry=https://registry.npmjs.org/
-npm view "@r3fstudios/jynx-sdk@$version" version repository homepage bugs dist.integrity --json --registry=https://registry.npmjs.org/
+npm view "@r3fstudio/jynx-sdk@$version" version repository homepage bugs dist.integrity --json --registry=https://registry.npmjs.org/
 ```
 
 The `--dry-run` command shows the package contents without publishing. Continue with the real publish only after reviewing that list. `publishConfig` also sets the public npm registry and public access in the package manifest. The archive's readable filename does not determine the npm package name; its bundled `package.json` does.
 
-Check the [npm package page](https://www.npmjs.com/package/@r3fstudios/jynx-sdk). In a temporary folder outside the monorepo, install the published version and import both `@r3fstudios/jynx-sdk` and `@r3fstudios/jynx-sdk/harness`. Do not use an existing workspace link as proof that the registry package installs correctly.
+Check the [npm package page](https://www.npmjs.com/package/@r3fstudio/jynx-sdk). In a temporary folder outside the monorepo, install the published version and import both `@r3fstudio/jynx-sdk` and `@r3fstudio/jynx-sdk/harness`. Do not use an existing workspace link as proof that the registry package installs correctly.
 
 ## Publish to PyPI
 
