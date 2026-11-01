@@ -1,15 +1,20 @@
-#[path="terminal_graphics.rs"]
+#[path = "menus.rs"]
+mod menus;
+#[path = "preferences.rs"]
+mod preferences;
+#[path = "terminal_graphics.rs"]
 mod terminal_graphics;
+use crate::terminal_ui as ui;
 use anyhow::{Context, Result, anyhow};
 use jynx_agent::{Agent, ApprovalGate};
 use jynx_mcp::{
     add_server as add_mcp_server, ensure_config as ensure_mcp_config,
     read_config as read_mcp_config,
 };
-use jynx_protocol::{AgentSettings, ChatMessage};
+use jynx_protocol::{AgentSettings, ChatMessage, ToolEvent};
 use jynx_storage::{ChatStore, RuntimeStateStore, default_state_root};
 use serde_json::Value;
-use std::io::{self as stdio, IsTerminal, Write};
+use std::io::{self as stdio, Write};
 use std::{collections::VecDeque, process::Stdio, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::{
@@ -19,15 +24,19 @@ use tokio::{
     time::{Duration, sleep},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 struct ChatOptions {
     endpoint: String,
     model: String,
+    #[serde(skip)]
     api_key: Option<String>,
+    #[serde(skip)]
     cwd: String,
     context_size: usize,
     local_compat: bool,
     settings: AgentSettings,
+    #[serde(skip)]
     prompt: Option<String>,
     llama_binary: Option<String>,
     runtime_name: Option<String>,
@@ -35,6 +44,12 @@ struct ChatOptions {
     gpu_layers: String,
     llama_extra: Vec<String>,
     runtime_verbosity: u8,
+    flash_attention: String,
+    cache_k: String,
+    cache_v: String,
+    threads: u32,
+    batch_size: u32,
+    ubatch_size: u32,
 }
 
 struct CliRuntime {
@@ -45,11 +60,16 @@ struct CliRuntime {
 
 pub async fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if matches!(args.first().map(String::as_str), Some("--version" | "-V" | "version")) {
+    if matches!(
+        args.first().map(String::as_str),
+        Some("--version" | "-V" | "version")
+    ) {
         println!("Jynx CLI {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-    if (args.is_empty() || args.first().map(String::as_str) == Some("chat")) && crate::updater::startup().await {
+    if (args.is_empty() || args.first().map(String::as_str) == Some("chat"))
+        && crate::updater::startup().await
+    {
         return Ok(());
     }
     if args.first().map(String::as_str) == Some("serve") {
@@ -57,6 +77,23 @@ pub async fn run() -> Result<()> {
     }
     if args.is_empty() {
         return chat_command(&[]).await;
+    }
+    if matches!(
+        args.first().map(String::as_str),
+        Some("settings" | "models")
+    ) {
+        let mut options = parse_chat_options(&[])?;
+        if args[0] == "models" {
+            menus::models(&mut options)?;
+        } else {
+            menus::settings(&mut options).await?;
+        }
+        preferences::save(&options)?;
+        println!(
+            "Settings saved to {}",
+            preferences::home().join("config.toml").display()
+        );
+        return Ok(());
     }
     let state_root = default_state_root();
     let store = ChatStore::new(&state_root);
@@ -146,6 +183,8 @@ fn print_help() {
     println!("jynx-cli --version             Print the installed version");
     println!("jynx-cli                       Start an interactive chat");
     println!("jynx-cli chat [options] [prompt]");
+    println!("jynx-cli settings              Open the settings menu");
+    println!("jynx-cli models                Choose a local model or cloud route");
     println!("jynx-cli serve                 Start the JSON-RPC server for host applications");
     println!(
         "  --endpoint <url>        OpenAI-compatible endpoint (default: http://127.0.0.1:8080)"
@@ -157,11 +196,16 @@ fn print_help() {
     println!("  --cwd <path>            Workspace exposed to file/code tools");
     println!("  --context <tokens>      Context budget (default: 32768)");
     println!("  --llama-server <path>  Launch this llama.cpp bundle's server executable");
-    println!("  --gguf <path>          Load a GGUF with the installed or explicitly selected llama.cpp runtime");
+    println!(
+        "  --gguf <path>          Load a GGUF with the installed or explicitly selected llama.cpp runtime"
+    );
     println!("  --runtime <name>       Select an installed backend (default: cpu)");
     println!("  --gpu-layers <n|all>  llama.cpp GPU offload (default: all)");
     println!("  --llama-arg <value>   Pass one additional llama-server argument; repeat as needed");
     println!("  --runtime-verbosity <0-5>  llama.cpp log detail (default: 3)");
+    println!("  --flash-attn <auto|on|off>  Flash attention mode");
+    println!("  --cache-type-k <type> --cache-type-v <type>  KV cache types (default: f16)");
+    println!("  --threads <n> --batch-size <n> --ubatch-size <n>  Runtime tuning");
     println!("  --local                 Enable strict llama.cpp local compatibility (default)");
     println!("  --cloud                 Preserve cloud provider message ordering");
     println!("  --permission <mode>     :ask, :workspace, or :danger-full-access");
@@ -169,9 +213,10 @@ fn print_help() {
     println!("  --no-web                Disable web_search/web_fetch tools");
     println!("  --no-fetch              Keep web_search but disable web_fetch");
     println!(
-        "If no prompt is supplied, chat starts an interactive REPL. Tool calls are always expanded."
+        "If no prompt is supplied, chat starts an interactive REPL. Piped output includes expanded tool results."
     );
-    println!("In the interactive chat, use /settings for model, llama.cpp, and MCP menus.");
+    println!("F2 opens actions, F3 models, F4 permissions. Type / for a searchable command menu.");
+    println!("Settings are stored in ~/.jynx/config.toml (or JYNX_HOME/config.toml).");
     println!();
     println!("jynx-cli threads list [--archived]");
     println!("jynx-cli threads show <id>");
@@ -186,23 +231,36 @@ fn print_help() {
 }
 
 fn parse_chat_options(args: &[String]) -> Result<ChatOptions> {
-    let mut endpoint =
-        std::env::var("JYNX_MODEL_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
-    let mut model = std::env::var("JYNX_MODEL_NAME").unwrap_or_else(|_| "local-model".into());
+    parse_chat_options_from(args, preferences::load()?)
+}
+
+fn parse_chat_options_from(args: &[String], saved: ChatOptions) -> Result<ChatOptions> {
+    let mut endpoint = std::env::var("JYNX_MODEL_ENDPOINT").unwrap_or(saved.endpoint);
+    let mut model = std::env::var("JYNX_MODEL_NAME").unwrap_or(saved.model);
     let mut api_key = std::env::var("JYNX_MODEL_API_KEY")
         .ok()
-        .filter(|value| !value.trim().is_empty());
+        .filter(|v| !v.trim().is_empty());
     let mut cwd = std::env::current_dir()?.to_string_lossy().into_owned();
-    let mut context_size = 32768usize;
-    let mut local_compat = true;
-    let mut settings = AgentSettings::default();
-    let mut llama_binary = None;
-    let mut runtime_name = None;
-    let mut gguf = None;
-    let mut gpu_layers = "all".to_string();
-    let mut llama_extra = Vec::new();
-    let mut runtime_verbosity = 3u8;
-    settings.permission_mode = ":ask".into();
+    let mut context_size = saved.context_size;
+    let mut local_compat = saved.local_compat;
+    let mut settings = saved.settings;
+    let mut llama_binary = saved.llama_binary;
+    let mut runtime_name = saved.runtime_name;
+    let mut gguf = saved.gguf;
+    let mut gpu_layers = saved.gpu_layers;
+    let mut llama_extra = saved.llama_extra;
+    let mut runtime_verbosity = saved.runtime_verbosity;
+    let mut flash_attention = saved.flash_attention;
+    let mut cache_k = saved.cache_k;
+    let mut cache_v = saved.cache_v;
+    let mut threads = saved.threads;
+    let mut batch_size = saved.batch_size;
+    let mut ubatch_size = saved.ubatch_size;
+    if std::env::var_os("JYNX_MODEL_ENDPOINT").is_some() || api_key.is_some() {
+        gguf = None;
+        llama_binary = None;
+        local_compat = api_key.is_none();
+    }
     let mut prompt_parts = Vec::new();
     let mut index = 0usize;
     while index < args.len() {
@@ -214,9 +272,19 @@ fn parse_chat_options(args: &[String]) -> Result<ChatOptions> {
                 .ok_or_else(|| anyhow!("{label} requires a value"))
         };
         match arg.as_str() {
-            "--endpoint" => endpoint = take_value(&mut index, "--endpoint")?,
-            "--model" => model = take_value(&mut index, "--model")?,
+            "--endpoint" => {
+                endpoint = take_value(&mut index, "--endpoint")?;
+                gguf = None;
+                llama_binary = None;
+            }
+            "--model" => {
+                model = take_value(&mut index, "--model")?;
+                gguf = None;
+                llama_binary = None;
+            }
             "--api-key" => {
+                gguf = None;
+                llama_binary = None;
                 api_key = Some(take_value(&mut index, "--api-key")?);
                 local_compat = false;
             }
@@ -229,9 +297,34 @@ fn parse_chat_options(args: &[String]) -> Result<ChatOptions> {
                     return Err(anyhow!("--context must be greater than zero"));
                 }
             }
-            "--runtime" => runtime_name = Some(take_value(&mut index, "--runtime")?),
+            "--flash-attn" => flash_attention = take_value(&mut index, "--flash-attn")?,
+            "--cache-type-k" => cache_k = take_value(&mut index, "--cache-type-k")?,
+            "--cache-type-v" => cache_v = take_value(&mut index, "--cache-type-v")?,
+            "--threads" => {
+                threads = take_value(&mut index, "--threads")?
+                    .parse()
+                    .context("Threads must be a nonnegative integer")?
+            }
+            "--batch-size" => {
+                batch_size = take_value(&mut index, "--batch-size")?
+                    .parse()
+                    .context("Batch size must be a positive integer")?
+            }
+            "--ubatch-size" => {
+                ubatch_size = take_value(&mut index, "--ubatch-size")?
+                    .parse()
+                    .context("Micro batch size must be a positive integer")?
+            }
+            "--runtime" => {
+                runtime_name = Some(take_value(&mut index, "--runtime")?);
+                llama_binary = None;
+            }
             "--llama-server" => llama_binary = Some(take_value(&mut index, "--llama-server")?),
-            "--gguf" => gguf = Some(take_value(&mut index, "--gguf")?),
+            "--gguf" => {
+                gguf = Some(take_value(&mut index, "--gguf")?);
+                local_compat = true;
+                api_key = None;
+            }
             "--gpu-layers" => gpu_layers = take_value(&mut index, "--gpu-layers")?,
             "--llama-arg" => llama_extra.push(take_value(&mut index, "--llama-arg")?),
             "--runtime-verbosity" => {
@@ -250,7 +343,11 @@ fn parse_chat_options(args: &[String]) -> Result<ChatOptions> {
             }
             "--reasoning" => settings.reasoning_effort = take_value(&mut index, "--reasoning")?,
             "--local" => local_compat = true,
-            "--cloud" => local_compat = false,
+            "--cloud" => {
+                local_compat = false;
+                gguf = None;
+                llama_binary = None;
+            }
             "--no-web" => {
                 settings.web_search_enabled = false;
                 settings.browser_tool_enabled = false;
@@ -265,8 +362,18 @@ fn parse_chat_options(args: &[String]) -> Result<ChatOptions> {
         }
         index += 1;
     }
-    settings.reasoning_effort=settings.reasoning_effort.trim().to_owned();
-    if settings.reasoning_effort.is_empty(){return Err(anyhow!("--reasoning requires a native effort value or default"));}
+    if api_key.is_none() && !local_compat {
+        let name = provider_key_env(&endpoint);
+        api_key = std::env::var(name)
+            .ok()
+            .filter(|key| !key.trim().is_empty());
+    }
+    settings.reasoning_effort = settings.reasoning_effort.trim().to_owned();
+    if settings.reasoning_effort.is_empty() {
+        return Err(anyhow!(
+            "--reasoning requires a native effort value or default"
+        ));
+    }
     if runtime_verbosity > 5 {
         return Err(anyhow!("runtime verbosity must be 0–5"));
     }
@@ -278,7 +385,12 @@ fn parse_chat_options(args: &[String]) -> Result<ChatOptions> {
     } else {
         Some(prompt_parts.join(" "))
     };
-    Ok(ChatOptions {
+    if !["f16", "bf16", "f32"].contains(&cache_k.as_str())
+        || !["f16", "bf16", "f32"].contains(&cache_v.as_str())
+    {
+        flash_attention = "on".into();
+    }
+    let options = ChatOptions {
         endpoint,
         model,
         api_key,
@@ -293,13 +405,34 @@ fn parse_chat_options(args: &[String]) -> Result<ChatOptions> {
         gpu_layers,
         llama_extra,
         runtime_verbosity,
-    })
+        flash_attention,
+        cache_k,
+        cache_v,
+        threads,
+        batch_size,
+        ubatch_size,
+    };
+    preferences::validate(&options)?;
+    Ok(options)
+}
+
+fn provider_key_env(endpoint: &str) -> &'static str {
+    match reqwest::Url::parse(endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .as_deref()
+    {
+        Some("api.openai.com") => "OPENAI_API_KEY",
+        Some("api.anthropic.com") => "ANTHROPIC_API_KEY",
+        _ => "JYNX_MODEL_API_KEY",
+    }
 }
 
 async fn chat_command(args: &[String]) -> Result<()> {
     let mut options = parse_chat_options(args)?;
     let mut cli_runtime: Option<CliRuntime> = None;
     let mut history: Vec<ChatMessage> = Vec::new();
+    let mut recent_tools: Vec<ToolEvent> = Vec::new();
     if let Some(prompt) = options.prompt.clone() {
         ensure_cli_runtime(&mut options, &mut cli_runtime).await?;
         history.push(user_message(prompt));
@@ -310,39 +443,39 @@ async fn chat_command(args: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    let route_label =
-        if options.local_compat {
-            "local"
-        } else {
-            "cloud"
-        };
-    println!("\n╭─ Jynx CLI ─────────────────────────────────────");
-    println!("│ model      {} ({})", options.model, route_label);
-    println!("│ workspace  {}", options.cwd);
-    if options.llama_binary.is_some() {
-        println!("│ runtime    managed llama.cpp");
-    }
-    println!("╰─ /settings for menus · /help for commands · /exit to quit ─────────────\n");
+    ui::banner(
+        &options.model,
+        &options.cwd,
+        options.context_size,
+        &options.settings.permission_mode,
+    );
+    let mut input_history = Vec::new();
     loop {
-        print!("› ");
-        stdio::stdout().flush()?;
-        let mut line = String::new();
-        if stdio::stdin().read_line(&mut line)? == 0 {
+        let Some(line) = ui::prompt(&input_history)? else {
             break;
-        }
+        };
         let prompt = line.trim();
         if prompt.is_empty() {
             continue;
         }
+        input_history.push(prompt.to_owned());
         if matches!(prompt, "/exit" | "/quit") {
             break;
         }
         if prompt == "/help" {
+            println!(
+                "F2 actions / F3 models / F4 permissions / / opens the searchable action menu"
+            );
+            println!("/model   Local models and cloud endpoints");
+            println!("/permissions  Approval mode / /context  Context window");
             println!("/help    Show CLI commands");
             println!("/status  Show the active model, endpoint, workspace, and permission mode");
             println!("/clear   Start a fresh conversation without changing the model");
-            println!("/compact Compact the current model context without clearing the conversation");
+            println!(
+                "/compact Compact the current model context without clearing the conversation"
+            );
             println!("/settings  Configure model, endpoint, context, permissions, and MCP servers");
+            println!("/tools   Inspect the last completed turn's tool results");
             println!("/logs    Show recent llama.cpp runtime output");
             println!("/exit    Close Jynx CLI\n");
             continue;
@@ -358,13 +491,22 @@ async fn chat_command(args: &[String]) -> Result<()> {
         }
         if prompt == "/compact" {
             println!("Compacting conversation...");
-            let result=jynx_context::compact_on_request(&history,options.context_size);
-            if result.compacted {history=result.messages;println!("Conversation compacted.\n");} else {println!("Compaction not needed.\n");}
+            let result = jynx_context::compact_on_request(&history, options.context_size);
+            if result.compacted {
+                history = result.messages;
+                println!("Conversation compacted.\n");
+            } else {
+                println!("Compaction not needed.\n");
+            }
             continue;
         }
         if prompt == "/clear" {
             history.clear();
             println!("Conversation cleared.\n");
+            continue;
+        }
+        if prompt == "/tools" {
+            menus::tool_results(&recent_tools)?;
             continue;
         }
         if prompt == "/logs" {
@@ -377,8 +519,26 @@ async fn chat_command(args: &[String]) -> Result<()> {
             }
             continue;
         }
-        if matches!(prompt, "/settings" | "/config") {
-            settings_menu(&mut options).await?;
+        if matches!(
+            prompt,
+            "/settings" | "/config" | "/model" | "/permissions" | "/context"
+        ) {
+            let previous = options.clone();
+            let result = match prompt {
+                "/model" => menus::models(&mut options),
+                "/permissions" => menus::permissions(&mut options),
+                "/context" => menus::context(&mut options),
+                _ => menus::settings(&mut options).await,
+            };
+            if let Err(error) = result.and_then(|_| preferences::save(&options)) {
+                options = previous;
+                eprintln!("Settings were not saved: {error:#}");
+            } else {
+                println!(
+                    "Settings saved to {}\n",
+                    preferences::home().join("config.toml").display()
+                );
+            }
             continue;
         }
         history.push(user_message(prompt.to_string()));
@@ -390,8 +550,10 @@ async fn chat_command(args: &[String]) -> Result<()> {
         }
         match run_chat_turn(&options, history.clone()).await {
             Ok(response) => {
-                if let Some(context)=response.context { history=context; }
-                else if !response.text.trim().is_empty() {
+                recent_tools = response.tools;
+                if let Some(context) = response.context {
+                    history = context;
+                } else if !response.text.trim().is_empty() {
                     history.push(ChatMessage {
                         role: "assistant".into(),
                         content: response.text,
@@ -430,162 +592,6 @@ fn menu_input(prompt: &str) -> Result<String> {
     Ok(answer.trim().to_string())
 }
 
-async fn settings_menu(options: &mut ChatOptions) -> Result<()> {
-    let alternate = stdio::stdout().is_terminal();
-    if alternate {
-        print!("\x1b[?1049h");
-    }
-    loop {
-        if alternate {
-            print!("\x1b[2J\x1b[H");
-        }
-        println!("╭─ Jynx CLI / Settings ──────────────────────────");
-        println!("│ 1  Model         {}", options.model);
-        println!("│ 2  Endpoint      {}", options.endpoint);
-        println!("│ 3  Context       {} tokens", options.context_size);
-        println!("│ 4  Reasoning     {}", options.settings.reasoning_effort);
-        println!("│ 5  Permission    {}", options.settings.permission_mode);
-        println!(
-            "│ 6  Compatibility {}",
-            if options.local_compat {
-                "local llama.cpp"
-            } else {
-                "cloud"
-            }
-        );
-        println!(
-            "│ 7  Web tools     {}",
-            if options.settings.web_search_enabled {
-                "on"
-            } else {
-                "off"
-            }
-        );
-        println!("│ 8  MCP servers   open configuration details");
-        println!("│ 9  llama.cpp     bundle, GGUF, GPU layers, and logs");
-        println!("╰─ 0  Back to chat ──────────────────────────────────");
-        match menu_input("Select › ")?.as_str() {
-            "0" | "" | "back" => break,
-            "1" => {
-                let value = menu_input("Model name › ")?;
-                if !value.is_empty() {
-                    options.model = value;
-                }
-            }
-            "2" => {
-                let value = menu_input("OpenAI-compatible endpoint URL › ")?;
-                if !value.is_empty() {
-                    options.endpoint = value;
-                    options.llama_binary = None;
-                }
-            }
-            "3" => {
-                let value = menu_input("Context tokens › ")?;
-                if !value.is_empty() {
-                    match value.parse::<usize>() {
-                        Ok(n) if n >= 512 => options.context_size = n,
-                        _ => {
-                            println!("Enter at least 512 tokens.");
-                            let _ = menu_input("Press Enter…")?;
-                        }
-                    }
-                }
-            }
-            "4" => {
-                let value=menu_input("Native effort value (or default) > ")?;
-                if !value.trim().is_empty(){options.settings.reasoning_effort=value;}
-            }
-            "5" => {
-                let value = menu_input("Permission (:ask/:workspace/:danger-full-access) › ")?;
-                if matches!(
-                    value.as_str(),
-                    ":ask" | ":workspace" | ":danger-full-access"
-                ) {
-                    options.settings.permission_mode = value;
-                }
-            }
-            "6" => options.local_compat = !options.local_compat,
-            "7" => {
-                options.settings.web_search_enabled = !options.settings.web_search_enabled;
-                options.settings.browser_tool_enabled = options.settings.web_search_enabled;
-            }
-            "8" => mcp_menu(alternate).await?,
-            "9" => loop {
-                if alternate {
-                    print!("\x1b[2J\x1b[H");
-                }
-                println!("╭─ llama.cpp ────────────────────────────────────────");
-                println!(
-                    "│ 1  Server executable  {}",
-                    options.llama_binary.as_deref().unwrap_or("Not set")
-                );
-                println!(
-                    "│ 2  GGUF model         {}",
-                    options.gguf.as_deref().unwrap_or("Not set")
-                );
-                println!("│ 3  GPU layers         {}", options.gpu_layers);
-                println!(
-                    "│ 4  Log detail         {} (0–5)",
-                    options.runtime_verbosity
-                );
-                println!(
-                    "│ 5  Extra args         {}",
-                    if options.llama_extra.is_empty() {
-                        "None".to_string()
-                    } else {
-                        options.llama_extra.join(" ")
-                    }
-                );
-                println!("│ 6  Clear extra args");
-                println!("╰─ 0  Back ──────────────────────────────────────────");
-                match menu_input("Select › ")?.as_str() {
-                    "0" | "" => break,
-                    "1" => {
-                        let value = menu_input("Path to llama-server executable › ")?;
-                        if !value.is_empty() {
-                            options.llama_binary = Some(value);
-                        }
-                    }
-                    "2" => {
-                        let value = menu_input("Path to GGUF model › ")?;
-                        if !value.is_empty() {
-                            options.gguf = Some(value);
-                        }
-                    }
-                    "3" => {
-                        let value = menu_input("GPU layers (all or number) › ")?;
-                        if value == "all" || value.parse::<u32>().is_ok() {
-                            options.gpu_layers = value;
-                        }
-                    }
-                    "4" => {
-                        let value = menu_input("Log verbosity (0–5) › ")?;
-                        if let Ok(level) = value.parse::<u8>() {
-                            if level <= 5 {
-                                options.runtime_verbosity = level;
-                            }
-                        }
-                    }
-                    "5" => {
-                        let value = menu_input("One argument (repeat to add more) › ")?;
-                        if !value.is_empty() {
-                            options.llama_extra.push(value);
-                        }
-                    }
-                    "6" => options.llama_extra.clear(),
-                    _ => {}
-                }
-            },
-            _ => {}
-        }
-    }
-    if alternate {
-        print!("\x1b[?1049l");
-        stdio::stdout().flush()?;
-    }
-    Ok(())
-}
-
 async fn mcp_menu(alternate: bool) -> Result<()> {
     let path = ensure_mcp_config().await?;
     loop {
@@ -613,7 +619,14 @@ async fn mcp_menu(alternate: bool) -> Result<()> {
         println!("│ 1  Add local stdio server");
         println!("│ Advanced: edit mcp.json to set environment variables or disable servers.");
         println!("╰─ 0  Back ──────────────────────────────────────────");
-        match menu_input("Select › ")?.as_str() {
+        match ui::choose(
+            "MCP servers",
+            &["Add a local stdio server".into(), "Back".into()],
+            0,
+        )?
+        .map(|i| if i == 0 { "1" } else { "0" })
+        .unwrap_or("0")
+        {
             "0" | "" => break,
             "1" => {
                 println!(
@@ -651,10 +664,10 @@ async fn ensure_cli_runtime(
     runtime: &mut Option<CliRuntime>,
 ) -> Result<()> {
     if options.llama_binary.is_none() && options.gguf.is_some() {
-        let bundled = crate::installed_runtime::resolve(&std::env::current_exe()?, options.runtime_name.as_deref())?;
-        if bundled.is_some() && options.runtime_name.as_deref().unwrap_or("cpu") == "cpu" {
-            options.gpu_layers = "0".to_owned();
-        }
+        let bundled = crate::installed_runtime::resolve(
+            &std::env::current_exe()?,
+            options.runtime_name.as_deref(),
+        )?;
         options.llama_binary = bundled.map(|path| path.to_string_lossy().into_owned());
     }
     let (Some(binary), Some(gguf)) = (&options.llama_binary, &options.gguf) else {
@@ -673,14 +686,23 @@ async fn ensure_cli_runtime(
         .with_context(|| format!("llama-server executable not found: {binary}"))?;
     let gguf =
         std::fs::canonicalize(gguf).with_context(|| format!("GGUF model not found: {gguf}"))?;
+    let gpu_layers = if binary
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .is_some_and(|name| name == "cpu")
+    {
+        "0"
+    } else {
+        &options.gpu_layers
+    };
     let key = format!(
         "{}|{}|{}|{}|{}|{:?}",
         binary.display(),
         gguf.display(),
         options.context_size,
-        options.gpu_layers,
+        gpu_layers,
         options.runtime_verbosity,
-        options.llama_extra
+        runtime_arguments(options)
     );
     if let Some(current) = runtime.as_mut() {
         if current.key == key && current.child.try_wait()?.is_none() {
@@ -709,11 +731,11 @@ async fn ensure_cli_runtime(
             &port.to_string(),
             "--jinja",
             "-ngl",
-            &options.gpu_layers,
+            gpu_layers,
             "--log-verbosity",
             &options.runtime_verbosity.to_string(),
         ])
-        .args(&options.llama_extra)
+        .args(runtime_arguments(options))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -797,11 +819,36 @@ async fn ensure_cli_runtime(
     Ok(())
 }
 
-struct CliTurnResult {text:String,context:Option<Vec<ChatMessage>>}
+fn runtime_arguments(options: &ChatOptions) -> Vec<String> {
+    let mut args = vec![
+        "--flash-attn".into(),
+        options.flash_attention.clone(),
+        "--cache-type-k".into(),
+        options.cache_k.clone(),
+        "--cache-type-v".into(),
+        options.cache_v.clone(),
+        "--batch-size".into(),
+        options.batch_size.to_string(),
+        "--ubatch-size".into(),
+        options.ubatch_size.to_string(),
+    ];
+    if options.threads > 0 {
+        args.extend(["--threads".into(), options.threads.to_string()]);
+    }
+    args.extend(options.llama_extra.clone());
+    args
+}
+
+struct CliTurnResult {
+    text: String,
+    context: Option<Vec<ChatMessage>>,
+    tools: Vec<ToolEvent>,
+}
 
 async fn run_chat_turn(options: &ChatOptions, messages: Vec<ChatMessage>) -> Result<CliTurnResult> {
     let approval_gate = ApprovalGate::default();
-    let mut settings=options.settings.clone();settings.final_answer_presentation=true;
+    let mut settings = options.settings.clone();
+    settings.final_answer_presentation = true;
     let agent = Agent::new(
         options.endpoint.clone(),
         options.model.clone(),
@@ -814,7 +861,10 @@ async fn run_chat_turn(options: &ChatOptions, messages: Vec<ChatMessage>) -> Res
     )?;
     let (tx, mut rx) = unbounded_channel::<Value>();
     let mut task = tokio::spawn(async move { agent.run(messages, tx).await });
-    let mut text_open = CliTextState::default();
+    let mut text_open = CliTextState {
+        expanded: options.settings.auto_open_tool_details || !ui::interactive(),
+        ..Default::default()
+    };
     loop {
         tokio::select! {
             event = rx.recv() => {
@@ -841,21 +891,26 @@ async fn run_chat_turn(options: &ChatOptions, messages: Vec<ChatMessage>) -> Res
                     println!("{}", response.text.trim_end());
                 }
                 if response.awaiting_user_input {
-                    return Ok(CliTurnResult{text:response.tools.iter().filter(|tool|tool.kind=="ask_user").filter_map(|tool|tool.output.as_deref()).collect::<Vec<_>>().join("\n"),context:response.context_messages});
+                    return Ok(CliTurnResult{text:response.tools.iter().filter(|tool|tool.kind=="ask_user").filter_map(|tool|tool.output.as_deref()).collect::<Vec<_>>().join("\n"),context:response.context_messages,tools:response.tools});
                 }
-                return Ok(CliTurnResult{text:response.text,context:response.context_messages});
+                return Ok(CliTurnResult{text:response.text,context:response.context_messages,tools:response.tools});
             }
         }
     }
 }
 
 fn prompt_cli_approval(label: &str) -> Result<bool> {
+    if ui::interactive() {
+        return Ok(ui::choose(
+            &format!("Approve {label}?"),
+            &["Decline".into(), "Approve this operation".into()],
+            0,
+        )? == Some(1));
+    }
     print!("? Approve {label}? [y/N] ");
     stdio::stdout().flush()?;
     let mut answer = String::new();
-    if stdio::stdin().read_line(&mut answer)? == 0 {
-        return Ok(false);
-    }
+    stdio::stdin().read_line(&mut answer)?;
     Ok(matches!(
         answer.trim().to_ascii_lowercase().as_str(),
         "y" | "yes"
@@ -866,13 +921,18 @@ fn prompt_cli_approval(label: &str) -> Result<bool> {
 struct CliTextState {
     open: bool,
     pending: String,
+    expanded: bool,
 }
 
 fn print_cli_event(event: &Value, text_open: &mut CliTextState) -> Result<()> {
     match event["type"].as_str().unwrap_or_default() {
         "final_answer" => {
-            let formatted=terminal_graphics::format_response(event["text"].as_str().unwrap_or_default());
-            return print_cli_event(&serde_json::json!({"type":"text_delta","text":formatted}),text_open);
+            let formatted =
+                terminal_graphics::format_response(event["text"].as_str().unwrap_or_default());
+            return print_cli_event(
+                &serde_json::json!({"type":"text_delta","text":formatted}),
+                text_open,
+            );
         }
         "text_delta" => {
             let text = event["text"].as_str().unwrap_or_default();
@@ -887,9 +947,6 @@ fn print_cli_event(event: &Value, text_open: &mut CliTextState) -> Result<()> {
                     print!("{word}");
                     stdio::stdout().flush()?;
                     text_open.open = true;
-                    if stdio::stdout().is_terminal() {
-                        std::thread::sleep(std::time::Duration::from_millis(12));
-                    }
                 }
                 if text_open.pending.len() > 1024 {
                     print!("{}", text_open.pending);
@@ -914,7 +971,7 @@ fn print_cli_event(event: &Value, text_open: &mut CliTextState) -> Result<()> {
                 "◇ {}",
                 if event["status"].as_str() == Some("started") {
                     "Compacting conversation…"
-                } else if event["status"].as_str()==Some("paused") {
+                } else if event["status"].as_str() == Some("paused") {
                     "Compaction paused"
                 } else {
                     "Conversation compacted"
@@ -923,15 +980,20 @@ fn print_cli_event(event: &Value, text_open: &mut CliTextState) -> Result<()> {
         }
         "tool_started" => {
             finish_text_line(text_open);
-            if event["kind"]=="ask_user" { return Ok(()); }
+            if event["kind"] == "ask_user" {
+                return Ok(());
+            }
             let kind = event["kind"].as_str().unwrap_or("tool");
             let label = event["label"].as_str().unwrap_or(kind);
-            println!("{} {}  ▾", cli_tool_icon(kind), label);
-            if let Some(arguments) = event.get("arguments") {
+            ui::tool_heading(cli_tool_icon(kind), label, false);
+            if let Some(arguments) = event.get("arguments").filter(|_| text_open.expanded) {
                 print_expanded_value("arguments", arguments);
             }
         }
         "tool_progress" => {
+            if !text_open.expanded {
+                return Ok(());
+            }
             finish_text_line(text_open);
             if let Some(output) = event["output"]
                 .as_str()
@@ -942,12 +1004,23 @@ fn print_cli_event(event: &Value, text_open: &mut CliTextState) -> Result<()> {
         }
         "tool_completed" => {
             finish_text_line(text_open);
-            if event["kind"]=="ask_user" && event["status"]=="completed" {
-                if let Some(output)=event["output"].as_str().and_then(|value|serde_json::from_str::<Value>(value).ok()) {
-                    if let Some(questions)=output["questions"].as_array() {
+            if event["kind"] == "ask_user" && event["status"] == "completed" {
+                if let Some(output) = event["output"]
+                    .as_str()
+                    .and_then(|value| serde_json::from_str::<Value>(value).ok())
+                {
+                    if let Some(questions) = output["questions"].as_array() {
                         for question in questions {
-                            println!("? {}",question["question"].as_str().unwrap_or_default());
-                            if let Some(options)=question["options"].as_array() {for (index,option) in options.iter().enumerate(){println!("  {}. {}",index+1,option.as_str().unwrap_or_default());}}
+                            println!("? {}", question["question"].as_str().unwrap_or_default());
+                            if let Some(options) = question["options"].as_array() {
+                                for (index, option) in options.iter().enumerate() {
+                                    println!(
+                                        "  {}. {}",
+                                        index + 1,
+                                        option.as_str().unwrap_or_default()
+                                    );
+                                }
+                            }
                         }
                         println!("Answer in the next message of this conversation.");
                     }
@@ -957,10 +1030,10 @@ fn print_cli_event(event: &Value, text_open: &mut CliTextState) -> Result<()> {
             let kind = event["kind"].as_str().unwrap_or("tool");
             let label = event["label"].as_str().unwrap_or(kind);
             let failed = event["status"].as_str() == Some("failed");
-            println!("{} {}", if failed { "✕" } else { "✓" }, label);
+            ui::tool_heading(if failed { "!" } else { "+" }, label, failed);
             if let Some(output) = event["output"]
                 .as_str()
-                .filter(|value| !value.trim().is_empty())
+                .filter(|value| !value.trim().is_empty() && (text_open.expanded || failed))
             {
                 if let Ok(value) = serde_json::from_str::<Value>(output) {
                     print_expanded_value("output", &value);
@@ -1029,4 +1102,87 @@ fn print_json(value: Value) {
         "{}",
         serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".into())
     );
+}
+
+#[cfg(test)]
+mod cli_options_tests {
+    use super::*;
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|v| v.to_string()).collect()
+    }
+    #[test]
+    fn provider_credentials_match_exact_hosts() {
+        assert_eq!(
+            provider_key_env("https://api.openai.com/v1"),
+            "OPENAI_API_KEY"
+        );
+        assert_eq!(
+            provider_key_env("https://api.anthropic.com/v1"),
+            "ANTHROPIC_API_KEY"
+        );
+        assert_eq!(
+            provider_key_env("https://api.openai.com.example.invalid/v1"),
+            "JYNX_MODEL_API_KEY"
+        );
+    }
+    #[test]
+    fn explicit_cloud_route_cannot_start_saved_local_model() {
+        let mut saved = ChatOptions::default();
+        saved.gguf = Some("synthetic.gguf".into());
+        saved.llama_binary = Some("synthetic-server".into());
+        let options = parse_chat_options_from(
+            &args(&[
+                "--endpoint",
+                "https://example.invalid/v1",
+                "--cloud",
+                "--model",
+                "remote",
+            ]),
+            saved,
+        )
+        .unwrap();
+        assert!(options.gguf.is_none());
+        assert!(options.llama_binary.is_none());
+        assert!(!options.local_compat);
+    }
+    #[test]
+    fn native_runtime_controls_reach_llama_arguments_and_enable_flash_for_quantized_cache() {
+        let options = parse_chat_options_from(
+            &args(&[
+                "--gguf",
+                "synthetic.gguf",
+                "--context",
+                "64000",
+                "--cache-type-v",
+                "q4_0",
+                "--threads",
+                "6",
+                "--batch-size",
+                "256",
+                "--ubatch-size",
+                "64",
+            ]),
+            ChatOptions::default(),
+        )
+        .unwrap();
+        let arguments = runtime_arguments(&options);
+        for pair in [
+            ["--flash-attn", "on"],
+            ["--cache-type-v", "q4_0"],
+            ["--threads", "6"],
+            ["--batch-size", "256"],
+            ["--ubatch-size", "64"],
+        ] {
+            assert!(arguments.windows(2).any(|window| window == pair));
+        }
+        assert_eq!(options.context_size, 64000);
+        assert!(options.local_compat);
+        assert!(
+            parse_chat_options_from(
+                &args(&["--ubatch-size", "1024", "--batch-size", "256"]),
+                ChatOptions::default()
+            )
+            .is_err()
+        );
+    }
 }

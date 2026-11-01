@@ -1,28 +1,27 @@
+PS D:\Local AI Source Trees\Jynx> jynx-cli chat --cwd flightdeck
 
-╭─ Jynx CLI ─────────────────────────────────────
-│ model      local-model (local)
-│ workspace  flightdeck
-╰─ /settings for menus · /help for commands · /exit to quit ─────────────
+       _ __   __ _   _ __  __
+      | |\ \ / /| \ | |\ \/ /
+   _  | | \ V / |  \| | >  <
+  | |_| |  | |  | |\  |/ /\ \
+   \___/   |_|  |_| \_/_/  \_\
 
-› 
+  Your Coding Agent.  /  v0.0.2
+
+  Model      local-model
+  Workspace  flightdeck
+  Context    32768 tokens / :ask
+
+  F2 actions  |  F3 models  |  F4 permissions  |  / commands
+  Up/Down history  |  Alt+Enter new line  |  Ctrl+D exit
+
+› Verify Flightdeck telemetry parsing and flight-envelope checks.
 Jynx ›
 I'll verify Flightdeck's telemetry validation and flight-envelope checks.
 
-? Approve Running cargo test --quiet? [y/N] >_ Running cargo test --quiet  ▾
-    arguments:
-      {
-        "command": "cargo test --quiet",
-        "timeout_ms": 60000
-      }
-✓ Ran cargo test --quiet
-    output:
-      {
-        "exit_code": 0,
-        "stderr": "",
-        "stderr_truncated": false,
-        "stdout": "\nrunning 8 tests\n........\ntest result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
-        "stdout_truncated": false
-      }
+✔ Approve Running cargo test --quiet? · Approve this operation
+  >_ Running cargo test --quiet
+  + Ran cargo test --quiet
 
 All 8 tests passed.
 
@@ -30,5 +29,4 @@ All 8 tests passed.
 - Airspeed and bank-angle limits are enforced.
 - Flight-envelope alerts pass their regression checks.
 
-
-› 
+›

@@ -15,7 +15,7 @@ Jynx is a coding agent for working on your projects. Use it to understand code, 
 The repository includes the agent harness, Jynx CLI, and JavaScript and Python SDKs.
 
 <p align="center">
-  <img src="assets/showcase/jynx-cli.png" width="1200" alt="Jynx CLI working on a Rust project">
+  <img src="assets/showcase/jynx-cli.png" width="1200" alt="Jynx CLI with keyboard shortcuts verifying a Rust project">
 </p>
 
 For setup, usage, building, and releases, see the [documentation](docs/README.md).

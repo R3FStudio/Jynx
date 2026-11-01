@@ -5,6 +5,8 @@
 | `JYNX_MODEL_ENDPOINT` | Default compatible model endpoint |
 | `JYNX_MODEL_NAME` | Default model ID |
 | `JYNX_MODEL_API_KEY` | Optional provider credential |
+| `JYNX_HOME` | CLI settings and model-library directory (default: `~/.jynx`) |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Provider-specific credential for a matching saved cloud endpoint |
 | `JYNX_STATE_DIR` | Harness conversation/runtime-state directory |
 | `JYNX_MCP_CONFIG` | MCP configuration path |
 | `JYNX_SKILLS_DIR` | Skill directory supplied by a supporting host |
