@@ -11,6 +11,20 @@ const repository = new URL(manifest.repository.url.replace(/^git\+/, '').replace
 const [owner] = repository.pathname.slice(1).split('/');
 if (repository.hostname !== 'github.com' || !manifest.name.startsWith(`@${owner.toLowerCase()}/`)) throw new Error('The SDK scope must match its GitHub repository owner.');
 if (!process.env.npm_execpath) throw new Error('Run npm run publish:sdk:github.');
+async function verifyPublishedPackage() {
+  const headers = {Authorization: `Bearer ${process.env.NODE_AUTH_TOKEN}`, Accept: 'application/vnd.github+json'};
+  const repoName = repository.pathname.slice(1);
+  const repoResponse = await fetch(`https://api.github.com/repos/${repoName}`, {headers, signal: AbortSignal.timeout(30000)});
+  if (!repoResponse.ok) throw new Error(`Repository verification failed: HTTP ${repoResponse.status}`);
+  const repo = await repoResponse.json();
+  const namespace = repo.owner.type === 'Organization' ? 'orgs' : 'users';
+  const packageName = encodeURIComponent(manifest.name.split('/')[1]);
+  const response = await fetch(`https://api.github.com/${namespace}/${owner}/packages/npm/${packageName}`, {headers, signal: AbortSignal.timeout(30000)});
+  if (!response.ok) throw new Error(`Published package verification failed: HTTP ${response.status}`);
+  const published = await response.json();
+  if (published.repository?.full_name?.toLowerCase() !== repoName.toLowerCase()) throw new Error('The published SDK is not linked to its source repository.');
+  console.log(JSON.stringify({package: published.name, url: published.html_url, repository: published.repository.full_name, visibility: published.visibility}));
+}
 const dryRun = process.argv.includes('--dry-run');
 if (process.argv.slice(2).some(arg => arg !== '--dry-run')) throw new Error('Only --dry-run is supported.');
 if (!dryRun) {
@@ -24,6 +38,7 @@ if (!dryRun) {
     const metadata = await response.json();
     if (metadata.versions?.[manifest.version]) {
       console.log(`${manifest.name}@${manifest.version} is already on GitHub Packages.`);
+      await verifyPublishedPackage();
       process.exit(0);
     }
   } else if (response.status !== 404) {
@@ -47,6 +62,7 @@ try {
   const result = spawnSync(process.execPath, args, {cwd: root, env: process.env, stdio: 'inherit'});
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`GitHub Packages publish failed (${result.status}).`);
+  if (!dryRun) await verifyPublishedPackage();
 } finally {
   const relative = path.relative(cache, stage);
   if (!relative.startsWith('github-sdk-') || relative.includes(path.sep) || path.isAbsolute(relative)) throw new Error('Refusing to clean an unrelated staging folder.');
