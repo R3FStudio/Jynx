@@ -100,3 +100,5 @@ Download the Actions artifact named `jynx-release-files` for the complete cross-
 The CLI updater accepts only `Jynx-CLI-Only-vVERSION-OS-ARCH.tar.gz` and its matching `.sha256` asset. Older archive names are not supported. Upload the complete new file set when publishing a release.
 
 Install the new CLI manually if your current CLI predates this naming scheme. Republishing a version uploads its new file set and removes superseded asset names from that release.
+
+For npm and PyPI uploads, follow [publishing SDK packages](publishing-sdks.md). Uploading SDK archives to a GitHub Release does not publish them to either registry.

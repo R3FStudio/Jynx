@@ -12,6 +12,12 @@ requires-python = ">=3.10"
 license = "GPL-3.0-only"
 license-files = ["LICENSE", "COPYRIGHT"]
 
+[project.urls]
+Homepage = "https://github.com/R3FStudio/Jynx"
+Documentation = "https://github.com/R3FStudio/Jynx/blob/main/docs/reference/sdks.md"
+Repository = "https://github.com/R3FStudio/Jynx"
+Issues = "https://github.com/R3FStudio/Jynx/issues"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["jynx_sdk*"]

@@ -22,6 +22,7 @@ Jynx runs model-driven tasks from the terminal and exposes the same capabilities
 - [Team workflow](development/team-workflow.md)
 - [Versioning](development/versioning.md)
 - [Releases](development/releases.md)
+- [Publish SDK packages](development/publishing-sdks.md)
 - [Troubleshooting](development/troubleshooting.md)
 
 ## Reference

@@ -1,7 +1,7 @@
 {
-  "name": "@jynx/sdk",
+  "name": "@r3fstudios/jynx-sdk",
   "version": "0.0.1",
-  "description": "JavaScript client for the Jynx local model API",
+  "description": "JavaScript and TypeScript clients for Jynx model APIs and the Jynx Harness",
   "type": "module",
   "files": [
     "src",
@@ -32,5 +32,25 @@
     "test": "node --test test/*.test.js"
   },
   "license": "GPL-3.0-only",
-  "author": "R3F Studio"
+  "author": "R3F Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/R3FStudio/Jynx.git",
+    "directory": "packages/sdk-js"
+  },
+  "homepage": "https://github.com/R3FStudio/Jynx/tree/main/docs/reference/sdks.md",
+  "bugs": {
+    "url": "https://github.com/R3FStudio/Jynx/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "keywords": [
+    "jynx",
+    "coding-agent",
+    "llm",
+    "sdk",
+    "mcp"
+  ]
 }

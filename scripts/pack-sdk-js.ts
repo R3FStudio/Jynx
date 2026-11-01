@@ -10,11 +10,11 @@ const cache = await mkdtemp(path.join(tmpdir(), 'jynx-sdk-pack-'));
 try {
   const destination = path.join(workspaceRoot, 'dist');
   await mkdir(destination, { recursive: true });
-  const child = run(process.execPath, [process.env.npm_execpath, 'pack', '--workspace', '@jynx/sdk', '--pack-destination', destination, '--cache', cache], { cwd: workspaceRoot });
+  const child = run(process.execPath, [process.env.npm_execpath, 'pack', '--workspace', '@r3fstudios/jynx-sdk', '--pack-destination', destination, '--cache', cache], { cwd: workspaceRoot });
   await waitForExit(child, 'JavaScript SDK pack');
   const { version } = JSON.parse(await readFile(path.join(workspaceRoot, 'packages/sdk-js/package.json'), 'utf8'));
   const archive = path.join(destination, `Jynx-JavaScript-SDK-v${version}.tgz`);
-  await rename(path.join(destination, `jynx-sdk-${version}.tgz`), archive);
+  await rename(path.join(destination, `r3fstudios-jynx-sdk-${version}.tgz`), archive);
   console.log(archive);
 } finally {
   const relative = path.relative(path.resolve(tmpdir()), path.resolve(cache));

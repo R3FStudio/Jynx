@@ -31,7 +31,7 @@
     },
     "sdk-js": {
       "path": "packages/sdk-js",
-      "name": "@jynx/sdk"
+      "name": "@r3fstudios/jynx-sdk"
     },
     "sdk-python": {
       "path": "packages/sdk-python",

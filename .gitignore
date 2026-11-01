@@ -22,3 +22,5 @@ vendor/llama.cpp/binaries/
 *.key
 /packages/private/
 /private/
+
+*.egg-info/
