@@ -53,6 +53,18 @@ The `--dry-run` command shows the package contents without publishing. Continue 
 
 Check the [npm package page](https://www.npmjs.com/package/@r3fstudio/jynx-sdk). In a temporary folder outside the monorepo, install the published version and import both `@r3fstudio/jynx-sdk` and `@r3fstudio/jynx-sdk/harness`. Do not use an existing workspace link as proof that the registry package installs correctly.
 
+## Show the SDK in GitHub's Packages sidebar
+
+The repository's Packages sidebar lists packages hosted on GitHub Packages, separately from npmjs.com. The same `@r3fstudio/jynx-sdk` package can be published to both registries. Its `repository` metadata links the GitHub-hosted copy to `R3FStudio/Jynx`.
+
+Open the repository's Actions tab, select **Publish SDK to GitHub Packages**, and choose **Run workflow** on the intended source ref. Published GitHub releases also trigger this workflow. It tests the SDK and publishes using the workflow's short-lived `GITHUB_TOKEN` with package-write permission. An already published version is skipped. No npmjs.com credentials or extra repository secrets are required.
+
+`npm run publish:sdk:github -- --dry-run` previews the GitHub-hosted package locally. The publisher stages only the SDK's packaged files and changes the staged registry setting to `https://npm.pkg.github.com/`. The source manifest continues to target npmjs.com, so regular npm publishing and installation commands retain their normal registry.
+
+After the first publish, open the package's settings on GitHub and check visibility. GitHub packages initially default to private; repository permission inheritance does not automatically make a package public. For this public SDK, change its visibility to **Public**. If the repository sidebar hides its Packages section, enable Packages in the repository's sidebar customization controls.
+
+Most users should continue to install from npmjs.com with `npm install @r3fstudio/jynx-sdk`. Installing the GitHub-hosted copy requires GitHub Packages authentication and an `@r3fstudio` registry mapping. See [GitHub's npm registry guide](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry) for credentials and registry configuration.
+
 ## Publish to PyPI
 
 Create a PyPI account and obtain publishing access to `jynx-python-sdk`. If the project has not been published, its first authorized upload creates it if the name is available. If someone else owns the name, resolve ownership before publishing; an npm organization does not grant PyPI access.

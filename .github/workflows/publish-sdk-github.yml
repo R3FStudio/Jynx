@@ -1,0 +1,28 @@
+name: Publish SDK to GitHub Packages
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: github-sdk-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          registry-url: https://npm.pkg.github.com/
+          scope: '@r3fstudio'
+      - run: npm ci
+      - run: npm run version:check
+      - run: npm run sdk:test:js
+      - run: npm run publish:sdk:github
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
