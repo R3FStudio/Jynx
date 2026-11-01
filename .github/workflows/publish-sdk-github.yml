@@ -6,6 +6,10 @@ on:
         description: 'Attempt to replace the exact current version; restores the previous GitHub version if publishing fails'
         type: boolean
         default: false
+      remove_version:
+        description: 'Optional older SDK version to delete after the current version is published and verified'
+        type: string
+        default: ''
   release:
     types: [published]
 permissions:
@@ -36,6 +40,12 @@ jobs:
           fi
         env:
           REPLACE_EXISTING: ${{ inputs.replace_existing || false }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Remove explicitly requested older SDK version
+        if: github.event_name == 'workflow_dispatch' && inputs.remove_version != ''
+        run: node scripts/remove-github-sdk-version.mjs
+        env:
+          SDK_REMOVE_VERSION: ${{ inputs.remove_version }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v7
         if: always() && inputs.replace_existing

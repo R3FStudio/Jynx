@@ -1,6 +1,6 @@
 {
   "name": "@jynx/harness",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Jynx Rust agent runtime workspace",
   "scripts": {

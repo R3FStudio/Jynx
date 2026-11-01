@@ -646,7 +646,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-agent"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-cli"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "flate2",
@@ -684,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-context"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "jynx-protocol",
  "serde",
@@ -693,7 +693,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-mcp"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-model"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "base64",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-protocol"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-sandbox"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-security"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "regex",
  "serde",
@@ -745,7 +745,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-server"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "jynx-agent",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-storage"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "jynx-tools"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "futures-util",

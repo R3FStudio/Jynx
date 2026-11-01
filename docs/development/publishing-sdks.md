@@ -59,6 +59,8 @@ The repository's Packages sidebar lists packages hosted on GitHub Packages, sepa
 
 Open the repository's Actions tab, select **Publish SDK to GitHub Packages**, and choose **Run workflow** on the intended source ref. Published GitHub releases also trigger this workflow. It tests the SDK and publishes using the workflow's short-lived `GITHUB_TOKEN` with package-write permission. An already published version is skipped. No npmjs.com credentials or extra repository secrets are required.
 
+The optional `remove_version` input removes one exact older GitHub SDK version only after the current version has been published and verified. It refuses to delete the current or a newer version. Leave it empty unless removal is explicitly intended.
+
 The manual workflow also has a `replace_existing` option for an explicitly requested same-version GitHub replacement. It backs up the exact current version, removes that version only, and attempts to restore the previous GitHub version if publishing fails. This option affects GitHub Packages only; it does not change npmjs.com versions or bypass npm immutability. Leave it off for ordinary releases.
 
 `npm run publish:sdk:github -- --dry-run` previews the GitHub-hosted package locally. The publisher stages only the SDK's packaged files and changes the staged registry setting to `https://npm.pkg.github.com/`. The source manifest continues to target npmjs.com, so regular npm publishing and installation commands retain their normal registry.

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Jynx Local Model API
-  version: 0.0.1
+  version: 0.0.2
   description: The opt-in loopback proxy to the currently loaded local GGUF model. The model server supplies the OpenAI-compatible response bodies.
 servers:
   - url: http://127.0.0.1:12347

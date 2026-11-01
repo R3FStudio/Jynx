@@ -1,6 +1,6 @@
 {
   "name": "jynx-monorepo",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Jynx CLI, agent harness, and SDKs for working with local and remote models.",
   "type": "module",

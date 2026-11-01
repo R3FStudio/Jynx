@@ -1,6 +1,6 @@
 {
   "name": "@r3fstudio/jynx-sdk",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "JavaScript and TypeScript clients for Jynx model APIs and the Jynx Harness",
   "type": "module",
   "files": [

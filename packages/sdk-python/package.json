@@ -1,6 +1,6 @@
 {
   "name": "@jynx/sdk-python",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Python SDK workspace commands",
   "scripts": {
