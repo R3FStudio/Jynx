@@ -20,3 +20,5 @@ Use an explicit base URL or `connect_local` with an optional host-written loopba
 Read the [SDK guide](https://github.com/R3FStudio/Jynx/blob/main/docs/reference/sdks.md) and [API definition](https://github.com/R3FStudio/Jynx/blob/main/api/local-model.openapi.yaml). Report issues in the [source repository](https://github.com/R3FStudio/Jynx/issues).
 
 Licensed under GPL-3.0-only. See LICENSE and COPYRIGHT in this package.
+
+See the [Jynx privacy policy](https://github.com/R3FStudio/Jynx/blob/main/PRIVACY.md), also included as PRIVACY.md in the distribution. SDK requests go to the configured endpoint; applications using the SDK are responsible for their own additional data handling and notices.

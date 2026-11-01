@@ -21,3 +21,6 @@ Issues = "https://github.com/R3FStudio/Jynx/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["jynx_sdk*"]
+
+[tool.setuptools.package-data]
+jynx_sdk = ["PRIVACY.md"]

@@ -72,6 +72,7 @@ Create a PyPI account and obtain publishing access to `jynx-python-sdk`. If the 
 Use an isolated environment for packaging tools. The following commands use PowerShell on Windows; on Linux or macOS, create the environment with `python3` and use `.cache/sdk-publish-venv/bin/python` instead of the Windows interpreter path.
 
 ```powershell
+npm run privacy:sync
 python -m venv .cache/sdk-publish-venv
 & ./.cache/sdk-publish-venv/Scripts/python.exe -m pip install --upgrade build twine
 & ./.cache/sdk-publish-venv/Scripts/python.exe -m build packages/sdk-python --outdir dist

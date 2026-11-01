@@ -8,7 +8,8 @@
     "types",
     "README.md",
     "LICENSE",
-    "COPYRIGHT"
+    "COPYRIGHT",
+    "PRIVACY.md"
   ],
   "engines": {
     "node": ">=22.12.0"
@@ -29,7 +30,8 @@
   },
   "scripts": {
     "build": "node --test test/*.test.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "prepack": "node ../../scripts/privacy-assets.mjs"
   },
   "license": "GPL-3.0-only",
   "author": "R3F Studio",

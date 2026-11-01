@@ -9,6 +9,7 @@ Jynx runs model-driven tasks from the terminal and exposes the same capabilities
 - [Quick start](getting-started/quickstart.md): build the CLI and connect a model.
 - [CLI guide](guides/cli.md): conversations, commands, questions, and tool output.
 - [Models and runtimes](guides/models.md): local inference, API routes, native reasoning, and context.
+- [Privacy policy](../PRIVACY.md): data handling, external services, and contact.
 - [Permissions and privacy](guides/permissions.md): approvals, file access, and network requests.
 - [Tools and MCP](guides/tools-and-mcp.md): built-in actions and external integrations.
 - [Configuration](guides/configuration.md): session settings, files, and defaults.

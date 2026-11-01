@@ -7,7 +7,7 @@ async function fixture(t){
  const root=await mkdtemp(path.join(os.tmpdir(),'jynx-installers-'));t.after(()=>rm(root,{recursive:true,force:true}));
  const files={
   'package.json':JSON.stringify({version:'0.0.1'}),'.gitignore':'.cache/\ndist/\nvendor/\n**/target/\npackages/private/\n',
-  'LICENSE':'Synthetic GPL notice','COPYRIGHT':'R3F Studio','README.md':'Synthetic source',
+  'PRIVACY.md':'# Fixture Privacy Policy\n\n## Local storage\n\nSynthetic privacy text.\n','LICENSE':'Synthetic GPL notice','COPYRIGHT':'R3F Studio','README.md':'Synthetic source',
   'assets/branding/LICENSE.txt':'Synthetic artwork notice','assets/branding/jynx.ico':'Synthetic icon',
   'packages/private/Desktop/private.txt':'PRIVATE_CANARY',
   'packages/cli/target/release/jynx-cli':'#!/bin/sh\necho "Jynx CLI 0.0.1"\n',
@@ -23,6 +23,7 @@ test('bundle contains native tools, complete runtime folders, notices, and publi
  const root=await fixture(t);const bundle=await stageBundle({root,platform:'linux',arch:'x64'});
  const manifest=JSON.parse(await readFile(path.join(bundle.payload,'runtime-manifest.json')));assert.equal(manifest.defaultRuntime,'cpu');assert.deepEqual(manifest.runtimes.map(x=>x.id),['cpu','vulkan']);
  assert.equal(await readFile(path.join(bundle.payload,'runtimes/vulkan/release/libdependency.so'),'utf8'),'LIBRARY_CANARY');
+ assert.match(await readFile(path.join(bundle.payload,'PRIVACY.txt'),'utf8'),/Fixture Privacy Policy/);assert.match(await readFile(path.join(bundle.staging,'mac-resources/Privacy.html'),'utf8'),/<h1>Fixture Privacy Policy<\/h1>/);
  await access(path.join(bundle.payload,'LICENSE'));await access(path.join(bundle.payload,'licenses/llama.cpp/LICENSE'));
  const source=[];await listTar({file:path.join(bundle.payload,'source/jynx-source.tar.gz'),onReadEntry:entry=>source.push(entry.path)});
  assert.ok(source.includes('README.md'));assert.ok(!source.some(file=>file.startsWith('packages/private/')));assert.ok(!source.some(file=>file.includes('/target/')));
@@ -35,7 +36,8 @@ test('bundle refuses runtime paths outside the selected runtime tree',async t=>{
 test('Unix setup installs commands, upgrades without losing local files, and uninstalls only owned files',{skip:process.platform==='win32'},async t=>{
  const root=await fixture(t);const bundle=await stageBundle({root,platform:'linux',arch:'x64'});
  const prefix=path.join(root,'installed app');const bin=path.join(root,'commands');const args=[path.join(bundle.payload,'install.sh'),'--prefix',prefix,'--bin-dir',bin];
- execFileSync('sh',args);assert.match(execFileSync(path.join(bin,'jynx-cli'),['--version'],{encoding:'utf8'}),/0.0.1/);assert.match(execFileSync(path.join(bin,'jynx-llama'),['--version'],{encoding:'utf8'}),/llama fixture/);
+ const notice=execFileSync('sh',[path.join(bundle.payload,'install.sh'),'--privacy','--prefix',prefix,'--bin-dir',bin],{encoding:'utf8'});assert.match(notice,/Synthetic privacy text/);await assert.rejects(access(prefix));
+ const installedOutput=execFileSync('sh',args,{encoding:'utf8',timeout:10000});assert.match(installedOutput,/privacy policy/i);assert.equal(await readFile(path.join(prefix,'PRIVACY.md'),'utf8'),await readFile(path.join(root,'PRIVACY.md'),'utf8'));assert.match(execFileSync(path.join(bin,'jynx-cli'),['--version'],{encoding:'utf8'}),/0.0.1/);assert.match(execFileSync(path.join(bin,'jynx-llama'),['--version'],{encoding:'utf8'}),/llama fixture/);
  await writeFile(path.join(prefix,'keep.txt'),'LOCAL_DATA');execFileSync('sh',args);assert.equal(await readFile(path.join(prefix,'keep.txt'),'utf8'),'LOCAL_DATA');
- execFileSync('sh',[path.join(prefix,'uninstall.sh')]);assert.equal(await readFile(path.join(prefix,'keep.txt'),'utf8'),'LOCAL_DATA');await assert.rejects(access(path.join(bin,'jynx-cli')));
+ execFileSync('sh',[path.join(prefix,'uninstall.sh')]);assert.equal(await readFile(path.join(prefix,'keep.txt'),'utf8'),'LOCAL_DATA');await assert.rejects(access(path.join(prefix,'PRIVACY.md')));await assert.rejects(access(path.join(bin,'jynx-cli')));
 });

@@ -4,7 +4,7 @@ async function collect(directory){
  let entries;try{entries=await readdir(directory,{withFileTypes:true});}catch(error){if(error.code==='ENOENT')return;throw error;}
  for(const entry of entries){const file=path.join(directory,entry.name);if(entry.isDirectory())await collect(file);else if(entry.isFile()&&entry.name.endsWith('.md'))files.add(file);}
 }
-for(const name of ['README.md','CONTRIBUTING.md','ARCHITECTURE.md','assets/README.md'])files.add(path.join(root,name));
+for(const name of ['README.md','PRIVACY.md','CONTRIBUTING.md','ARCHITECTURE.md','assets/README.md'])files.add(path.join(root,name));
 await collect(path.join(root,'docs'));
 const config=JSON.parse(await readFile(path.join(root,'workspace.config.json'),'utf8'));
 for(const component of Object.values(config.packages)){

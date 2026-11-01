@@ -22,6 +22,9 @@ const manifest=JSON.parse(await readFile(path.join(prefix,'runtime-manifest.json
 const cpu=manifest.runtimes.find(runtime=>runtime.id==='cpu');
 const runtime=run(path.join(prefix,cpu.server),['--version']);console.log('Bundled llama.cpp: '+cpu.release+' '+runtime.trim().split('\n')[0]);
 await access(path.join(prefix,'source/jynx-source.tar.gz'));
+const policy=await readFile(path.join(prefix,'PRIVACY.md'),'utf8');if(policy!==await readFile(path.join(root,'PRIVACY.md'),'utf8'))throw new Error('Installed privacy policy differs from source');
+await access(path.join(prefix,'PRIVACY.txt'));
+if(platform==='macos'){const distribution=await readFile(path.join(temp,'expanded-pkg/Distribution'),'utf8');if(!distribution.includes('Privacy.html'))throw new Error('macOS Installer does not present the privacy policy');await access(path.join(temp,'expanded-pkg/Resources/Privacy.html'));}
 if(platform==='windows')run(path.join(prefix,'Uninstall.exe'),['/S']);
 else run('sh',[path.join(prefix,'uninstall.sh')]);
 let removed=false;for(let attempt=0;attempt<50;attempt++){try{await access(path.join(prefix,'bin','jynx-cli'+ext));}catch{removed=true;break;}await new Promise(resolve=>setTimeout(resolve,100));}

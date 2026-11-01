@@ -102,3 +102,9 @@ The CLI updater accepts only `Jynx-CLI-Only-vVERSION-OS-ARCH.tar.gz` and its mat
 Install the new CLI manually if your current CLI predates this naming scheme. Republishing a version uploads its new file set and removes superseded asset names from that release.
 
 For npm and PyPI uploads, follow [publishing SDK packages](publishing-sdks.md). Uploading SDK archives to a GitHub Release does not publish them to either registry.
+
+## Privacy notice in distributions
+
+The source of truth is root `PRIVACY.md`. Installers include both the Markdown policy and readable `PRIVACY.txt`. Windows shows a separate informational wizard page. Linux and portable Unix installers present the policy before an interactive install; `--privacy` prints it without installing. Noninteractive installs print the policy location and do not wait for input. macOS `.pkg` installers show the full policy on the native read-me page; command-line package-manager installs retain the same policy in the installed files.
+
+Run `npm run privacy:sync` after policy changes. JavaScript packing, GitHub Packages staging, and the Python wheel wrapper also refresh the SDK copies. Python source distributions include the notice, and wheels include it in the `jynx_sdk` package. Published registry versions are immutable: a notice added to source is included in the next SDK release, not retroactively inserted into an existing npm tarball.

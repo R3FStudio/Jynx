@@ -12,6 +12,12 @@ Var TestMode
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${PAYLOAD}\LICENSE"
+!define MUI_PAGE_HEADER_TEXT "Privacy policy"
+!define MUI_PAGE_HEADER_SUBTEXT "How Jynx handles local information and external connections."
+!define MUI_LICENSEPAGE_TEXT_TOP "Please review the Jynx privacy policy. A copy remains in the installation folder."
+!define MUI_LICENSEPAGE_TEXT_BOTTOM "This is an informational notice. Continuing does not authorize optional data collection."
+!define MUI_LICENSEPAGE_BUTTON "$(^NextBtn)"
+!insertmacro MUI_PAGE_LICENSE "${PAYLOAD}\PRIVACY.txt"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -70,6 +76,8 @@ Section "Uninstall"
  RMDir /r "$INSTDIR\setup"
  Delete "$INSTDIR\LICENSE"
  Delete "$INSTDIR\COPYRIGHT"
+ Delete "$INSTDIR\PRIVACY.md"
+ Delete "$INSTDIR\PRIVACY.txt"
  Delete "$INSTDIR\README.txt"
  Delete "$INSTDIR\install.sh"
  Delete "$INSTDIR\uninstall.sh"

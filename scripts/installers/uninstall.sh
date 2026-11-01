@@ -11,6 +11,6 @@ done
 rm -f -- "$prefix/bin/jynx-cli" "$prefix/bin/jynx-harness" "$prefix/bin/jynx-llama"
 rmdir "$prefix/bin" 2>/dev/null || true
 rm -rf -- "$prefix/runtimes" "$prefix/licenses" "$prefix/setup" "$prefix/source"
-rm -f -- "$prefix/LICENSE" "$prefix/COPYRIGHT" "$prefix/README.txt" "$prefix/runtime-manifest.json" "$prefix/install-manifest.json" "$prefix/.installed-bin-dir" "$prefix/install.sh" "$prefix/uninstall.sh"
+rm -f -- "$prefix/LICENSE" "$prefix/COPYRIGHT" "$prefix/PRIVACY.md" "$prefix/PRIVACY.txt" "$prefix/README.txt" "$prefix/runtime-manifest.json" "$prefix/install-manifest.json" "$prefix/.installed-bin-dir" "$prefix/install.sh" "$prefix/uninstall.sh"
 rmdir "$prefix" 2>/dev/null || true
 printf 'Jynx removed. Model and conversation data were kept.\n'

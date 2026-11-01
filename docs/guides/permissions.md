@@ -1,5 +1,7 @@
 # Permissions and privacy
 
+Read the [privacy policy](../../PRIVACY.md) for data handling, retention, external services, and privacy questions.
+
 | Mode | Behavior |
 | --- | --- |
 | `:ask` | Requests approval before tool execution; question tools can ask directly |

@@ -81,7 +81,8 @@
     "pack:all:exclude-desktop": "node scripts/pack-all.ts --exclude-desktop",
     "package:installers:exclude-desktop": "node scripts/pack-all.ts --installers-only --exclude-desktop",
     "pack:bundle:exclude-desktop": "node scripts/pack-all.ts --bundle-only --exclude-desktop",
-    "publish:sdk:github": "node scripts/publish-sdk-github.mjs"
+    "publish:sdk:github": "node scripts/publish-sdk-github.mjs",
+    "privacy:sync": "node scripts/privacy-assets.mjs"
   },
   "devDependencies": {
     "tar": "7.5.22"

@@ -6,7 +6,8 @@
 <p align="center">
   <a href="docs/README.md">Documentation</a> &nbsp;&middot;&nbsp;
   <a href="docs/getting-started/install.md">Get started</a> &nbsp;&middot;&nbsp;
-  <a href="CONTRIBUTING.md">Contribute</a>
+  <a href="CONTRIBUTING.md">Contribute</a> &nbsp;&middot;&nbsp;
+  <a href="PRIVACY.md">Privacy</a>
 </p>
 
 Jynx is a coding agent for working on your projects. Use it to understand code, build features, fix bugs, and test your changes with a local model or a compatible API.

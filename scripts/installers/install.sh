@@ -3,13 +3,28 @@ set -eu
 payload=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 prefix=${JYNX_PREFIX:-"$HOME/.local/share/jynx"}
 bin_dir=${JYNX_BIN_DIR:-"$HOME/.local/bin"}
+show_privacy=0
 while [ "$#" -gt 0 ]; do
  case "$1" in
+  --privacy) show_privacy=1; shift ;;
   --prefix) prefix=$2; shift 2 ;;
   --bin-dir) bin_dir=$2; shift 2 ;;
   *) printf 'Unknown option: %s\n' "$1" >&2; exit 1 ;;
  esac
 done
+if [ "$show_privacy" = 1 ]; then
+ cat "$payload/PRIVACY.txt"
+ exit 0
+fi
+printf '\nJynx privacy policy: no built-in analytics or automatic chat uploads to R3F Studio.\nOptional providers, web tools, updates, and downloads can contact external services.\n'
+if [ -t 0 ] && [ -t 1 ]; then
+ printf 'Press Enter to read the full policy before installation (Ctrl+C cancels). '
+ IFS= read -r privacy_answer || exit 1
+ if command -v more >/dev/null 2>&1; then more "$payload/PRIVACY.txt"; else cat "$payload/PRIVACY.txt"; fi
+else
+ printf 'No interactive prompt in this session. Read the included PRIVACY.txt or run this installer with --privacy.\n'
+fi
+printf 'Policy: https://github.com/R3FStudio/Jynx/blob/main/PRIVACY.md\nA readable copy will be kept at %s/PRIVACY.txt\n\n' "$prefix"
 case "$prefix" in /*) ;; *) printf 'Use an absolute installation prefix.\n' >&2; exit 1 ;; esac
 case "$prefix" in /|/usr|/usr/local|/usr/local/bin|/bin|/home|"$HOME") printf 'Refusing unsafe installation prefix.\n' >&2; exit 1 ;; esac
 case "$bin_dir" in /*) ;; *) printf 'Use an absolute bin directory.\n' >&2; exit 1 ;; esac

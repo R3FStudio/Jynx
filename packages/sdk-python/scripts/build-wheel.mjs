@@ -4,6 +4,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+await (await import('../../../scripts/privacy-assets.mjs')).syncPrivacy();
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.resolve(root, '..', '..', 'dist');
 const eggInfo = path.join(root, 'src', 'jynx_python_sdk.egg-info');

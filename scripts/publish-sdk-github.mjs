@@ -4,6 +4,9 @@ import {cp, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 
+import {syncPrivacy} from './privacy-assets.mjs';
+await syncPrivacy();
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = path.join(root, 'packages/sdk-js');
 const manifest = JSON.parse(await readFile(path.join(source, 'package.json'), 'utf8'));
