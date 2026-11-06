@@ -6,7 +6,8 @@
     "harness",
     "cli",
     "sdk-js",
-    "sdk-python"
+    "sdk-python",
+    "extension"
   ],
   "packages": {
     "tooling": {
@@ -36,6 +37,11 @@
     "sdk-python": {
       "path": "packages/sdk-python",
       "name": "@jynx/sdk-python"
+    },
+    "extension": {
+      "path": "packages/private/jynx-code",
+      "name": "jynx-vscode",
+      "standalone": true
     }
   },
   "visibility": "public"

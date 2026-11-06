@@ -1,92 +1,102 @@
 #!/usr/bin/env node
-import { readdir, rm } from 'node:fs/promises';
+import { lstat, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dryRun = process.argv.includes('--dry-run');
-const explicitTargets = [
-  path.join(projectRoot, 'node_modules'),
-  path.join(projectRoot, 'packages', 'private', 'Desktop', 'build'),
-  path.join(projectRoot, 'packages', 'private', 'Desktop', 'dist'),
-  path.join(projectRoot, 'packages', 'private', 'Desktop', '.runtime-staging'),
-  path.join(projectRoot, 'resources', 'bin'),
-  path.join(projectRoot, 'dist'),
-  path.join(projectRoot, 'packages', 'harness', 'target'),
-  path.join(projectRoot, 'packages', 'cli', 'target'),
-];
-
-const generatedDirectoryNames = new Set([
-  'node_modules',
-  'target',
-  'dist',
-  'build',
-  'out',
-  'coverage',
-  'storybook-static',
-  '.cache',
-  '.vite',
-  '.electron-vite',
-  '.webpack',
-  '.turbo',
-  '.parcel-cache',
-  '.next',
-  '.nuxt',
-  '.svelte-kit',
-  '.output',
-  '.nyc_output',
-  '.jest',
+const directoryNames = new Set([
+  'node_modules', 'target', 'dist', 'build', 'out', 'coverage', 'storybook-static',
+  '.cache', '.vite', '.electron-vite', '.webpack', '.turbo', '.parcel-cache',
+  '.next', '.nuxt', '.svelte-kit', '.output', '.nyc_output', '.jest',
+  '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache',
 ]);
+const filePatterns = [/\.tsbuildinfo$/i, /^\.eslintcache$/i, /\.py[co]$/i];
+const skipDirectories = new Set(['.git', '.development', '.jynx', '.jynx-state', 'models', 'chats', '.venv', 'venv', 'vendor']);
 
-const generatedFilePatterns = [
-  /\.log$/i,
-  /\.tmp$/i,
-  /\.temp$/i,
-  /\.pid$/i,
-  /\.pid\.lock$/i,
-  /\.tsbuildinfo$/i,
-  /^\.eslintcache$/i,
-  /^\.DS_Store$/,
-  /^Thumbs\.db$/i,
-];
-
-function assertSafeTarget(target) {
-  const resolved = path.resolve(target);
-  const relative = path.relative(projectRoot, resolved);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Refusing to clean unsafe path: ${resolved}`);
-  }
-  return resolved;
+function inside(root, target) {
+  const relative = path.relative(root, target);
+  return Boolean(relative) && relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
 }
 
-async function discoverGenerated(root) {
-  const found = [];
-  const visit = async (directory) => {
-    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (entry.name === '.git') continue;
+async function safeTarget(root, candidate) {
+  const target = path.resolve(candidate);
+  if (!inside(root, target)) throw new Error(`Refusing to clean unsafe path: ${target}`);
+  let current = root;
+  for (const part of path.relative(root, target).split(path.sep)) {
+    current = path.join(current, part);
+    const stat = await lstat(current).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!stat) return null;
+    if (stat.isSymbolicLink()) return null;
+    if (!inside(root, await realpath(current))) throw new Error(`Refusing to follow external path: ${current}`);
+  }
+  return target;
+}
+
+export async function cleanArtifacts({ root = projectRoot, dryRun = false, keepDependencies = false, log = console.log } = {}) {
+  root = await realpath(root);
+  const config = JSON.parse(await readFile(path.join(root, 'workspace.config.json'), 'utf8'));
+  const components = Object.values(config.packages || {}).map(component => {
+    if (!component || typeof component.path !== 'string') throw new Error('Invalid component path in workspace.config.json');
+    const directory = path.resolve(root, component.path);
+    if (!inside(root, directory)) throw new Error(`Unsafe component path: ${component.path}`);
+    return directory;
+  });
+  const candidates = new Set();
+  const add = candidate => candidates.add(path.resolve(candidate));
+  for (const base of [root, ...components]) {
+    if (!(base === root || await safeTarget(root, base))) continue;
+    for (const name of directoryNames) {
+      if (keepDependencies && name === 'node_modules') continue;
+      add(path.join(base, name));
+    }
+    add(path.join(base, 'resources', 'bin'));
+    add(path.join(base, '.runtime-staging'));
+  }
+  const extension = config.packages?.extension?.path;
+  if (extension) {
+    add(path.resolve(root, extension, 'resources'));
+    add(path.resolve(root, extension, '.vscode-test'));
+    add(path.resolve(root, extension, 'THIRD_PARTY_NOTICES.md'));
+  }
+  add(path.join(root, 'vendor', 'llama.cpp', 'binaries'));
+  const visit = async directory => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isSymbolicLink() || skipDirectories.has(entry.name)) continue;
       const candidate = path.join(directory, entry.name);
       if (entry.isDirectory()) {
-        if (generatedDirectoryNames.has(entry.name) || (directory === projectRoot && entry.name.startsWith('bazel-'))) {
-          found.push(candidate);
-        } else {
+        if (directoryNames.has(entry.name) || entry.name.endsWith('.egg-info') || entry.name.endsWith('.dist-info')) {
+          if (!(keepDependencies && entry.name === 'node_modules')) add(candidate);
+        } else if (!(directory === root && ['packages', 'tools'].includes(entry.name))) {
           await visit(candidate);
         }
-      } else if (entry.isFile() && generatedFilePatterns.some((pattern) => pattern.test(entry.name))) {
-        found.push(candidate);
-      }
+      } else if (entry.isFile() && (filePatterns.some(pattern => pattern.test(entry.name)) ||
+        (directory === root || components.includes(directory)) && /\.(vsix|tgz|whl)$/i.test(entry.name))) add(candidate);
     }
   };
-  await visit(root);
-  return found;
+  for (const base of [root, ...components]) {
+    if (base === root || await safeTarget(root, base)) await visit(base);
+  }
+  const targets = [];
+  for (const candidate of [...candidates].sort((a, b) => a.length - b.length || a.localeCompare(b))) {
+    if (targets.some(parent => candidate === parent || inside(parent, candidate))) continue;
+    const target = await safeTarget(root, candidate);
+    if (target) targets.push(target);
+  }
+  for (const target of targets) {
+    if (!(await safeTarget(root, target))) continue;
+    log(`${dryRun ? '[dry run]' : '[clean]'} ${path.relative(root, target)}`);
+    if (!dryRun) await rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 150 });
+  }
+  log(`${dryRun ? 'Would remove' : 'Removed'} ${targets.length} artifact paths.`);
+  return targets;
 }
 
-const discoveredTargets = await discoverGenerated(projectRoot);
-const targets = [...new Set([...explicitTargets, ...discoveredTargets].map((target) => path.resolve(target)))].sort();
-
-for (const candidate of targets) {
-  const target = assertSafeTarget(candidate);
-  const label = path.relative(projectRoot, target) || target;
-  if (dryRun) console.log(`[dry run] ${label}`);
-  else await rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 150 });
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const args = process.argv.slice(2);
+  if (args.some(arg => !['--dry-run', '--keep-dependencies'].includes(arg))) throw new Error('Usage: npm run clean -- [--dry-run] [--keep-dependencies]');
+  await cleanArtifacts({ dryRun: args.includes('--dry-run'), keepDependencies: args.includes('--keep-dependencies') });
 }

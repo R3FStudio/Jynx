@@ -100,7 +100,23 @@ fn save_to(path: &Path, options: &ChatOptions) -> Result<()> {
         saved.endpoint = "http://127.0.0.1:8080".into();
     }
     std::fs::create_dir_all(path.parent().context("Settings directory is missing")?)?;
-    let text = toml::to_string_pretty(&saved)?;
+    let mut document: toml::Table = match std::fs::read_to_string(path) {
+        Ok(text) => toml::from_str(&text)
+            .with_context(|| format!("Invalid settings in {}", path.display()))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
+        Err(error) => return Err(error).with_context(|| format!("Reading {}", path.display())),
+    };
+    for key in [
+        "endpoint", "model", "api_key", "cwd", "context_size", "local_compat", "settings",
+        "prompt", "llama_binary", "runtime_name", "gguf", "gpu_layers", "llama_extra",
+        "runtime_verbosity", "flash_attention", "cache_k", "cache_v", "threads",
+        "batch_size", "ubatch_size",
+    ] {
+        document.remove(key);
+    }
+    let serialized = toml::Value::try_from(&saved)?;
+    document.extend(serialized.as_table().context("Invalid CLI configuration")?.clone());
+    let text = toml::to_string_pretty(&document)?;
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
     std::fs::write(&temporary, text)?;
     std::fs::rename(&temporary, path).with_context(|| format!("Saving {}", path.display()))?;
@@ -127,6 +143,21 @@ mod tests {
         assert_eq!(loaded.context_size, 65536);
         assert_eq!(loaded.settings.permission_mode, ":ask");
         assert!(loaded.api_key.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn cli_save_preserves_extension_configuration() {
+        let dir = std::env::temp_dir().join(format!("jynx-code-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "context_size = 64000\n[code.preferences]\npermission = \"ask\"\n[code.preferences.settings]\ntemperature = 0.25\n").unwrap();
+        let mut options = load_from(&path).unwrap();
+        options.context_size = 32768;
+        save_to(&path, &options).unwrap();
+        let document: toml::Table = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(document["code"]["preferences"]["permission"].as_str(), Some("ask"));
+        assert_eq!(document["code"]["preferences"]["settings"]["temperature"].as_float(), Some(0.25));
+        assert_eq!(load_from(&path).unwrap().context_size, 32768);
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]

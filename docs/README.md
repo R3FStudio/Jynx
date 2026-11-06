@@ -12,6 +12,7 @@ Jynx runs model-driven tasks from the terminal and exposes the same capabilities
 - [Privacy policy](../PRIVACY.md): data handling, external services, and contact.
 - [Permissions and privacy](guides/permissions.md): approvals, file access, and network requests.
 - [Tools and MCP](guides/tools-and-mcp.md): built-in actions and external integrations.
+- [Jynx instructions](guides/instructions.md): project conventions and autonomous-work guidance in `jynx.md`.
 - [Configuration](guides/configuration.md): session settings, files, and defaults.
 
 ## Work on the source

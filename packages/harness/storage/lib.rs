@@ -1,4 +1,6 @@
 use anyhow::{Result, anyhow};
+use fs2::FileExt;
+use sha2::{Digest, Sha256};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -17,11 +19,12 @@ impl JsonStore {
     }
     pub async fn write<T: Serialize>(&self, key: &str, value: &T) -> Result<()> {
         fs::create_dir_all(&self.root).await?;
-        fs::write(
-            self.root.join(format!("{key}.json")),
-            serde_json::to_vec_pretty(value)?,
-        )
-        .await?;
+        let temporary = self.root.join(format!(".{key}-{}.tmp", uuid::Uuid::new_v4()));
+        fs::write(&temporary, serde_json::to_vec_pretty(value)?).await?;
+        if let Err(error) = fs::rename(&temporary, self.root.join(format!("{key}.json"))).await {
+            let _ = fs::remove_file(&temporary).await;
+            return Err(error.into());
+        }
         Ok(())
     }
     pub async fn read<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
@@ -45,6 +48,58 @@ impl ChatStore {
         }
     }
 
+    async fn lock(&self) -> Result<std::fs::File> {
+        let root = self.store.root.clone();
+        tokio::task::spawn_blocking(move || -> Result<std::fs::File> {
+            std::fs::create_dir_all(&root)?;
+            let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(root.join("threads.lock"))?;
+            file.lock_exclusive()?;
+            Ok(file)
+        }).await?
+    }
+
+    pub async fn import_legacy(&self, source: impl AsRef<Path>) -> Result<Value> {
+        let source = source.as_ref();
+        if source == self.store.root { return Ok(json!({"imported":0})); }
+        let _guard = self.lock().await?;
+        let marker = self.store.root.join(format!("imported-{}.json", format!("{:x}", Sha256::digest(source.to_string_lossy().as_bytes()))));
+        if fs::try_exists(&marker).await? { return Ok(json!({"imported":0})); }
+        let incoming = match fs::read(source.join("threads.json")).await {
+            Ok(bytes) => serde_json::from_slice::<Vec<Value>>(&bytes)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!({"imported":0})),
+            Err(error) => return Err(error.into()),
+        };
+        let mut threads = self.read_threads().await?;
+        let mut imported = 0;
+        for thread in incoming {
+            let id = Self::id_of(&thread);
+            if !id.is_empty() && !threads.iter().any(|entry| Self::id_of(entry) == id) {
+                threads.push(thread);
+                imported += 1;
+            }
+        }
+        if imported > 0 { self.write_threads(&threads).await?; }
+        fs::write(marker, b"true").await?;
+        Ok(json!({"imported":imported}))
+    }
+
+    pub async fn import_known_legacy(&self, cwd: impl AsRef<Path>) -> Result<()> {
+        if std::env::var("JYNX_LEGACY_IMPORT").is_ok_and(|value| value == "off")
+            || (std::env::var_os("JYNX_STATE_DIR").is_some() && std::env::var_os("JYNX_HISTORY_DIR").is_none()) {
+            return Ok(());
+        }
+        let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
+        let app_data = if cfg!(target_os = "windows") {
+            std::env::var_os("APPDATA").map(PathBuf::from).or_else(|| home.as_ref().map(|root|root.join("AppData/Roaming")))
+        } else if cfg!(target_os = "macos") {
+            home.as_ref().map(|root|root.join("Library/Application Support"))
+        } else {
+            std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| home.as_ref().map(|root|root.join(".config")))
+        };
+        for source in legacy_history_sources(cwd.as_ref(), app_data.as_deref()) { self.import_legacy(source).await?; }
+        Ok(())
+    }
+
     async fn read_threads(&self) -> Result<Vec<Value>> {
         Ok(self
             .store
@@ -62,6 +117,7 @@ impl ChatStore {
     }
 
     pub async fn list(&self, archived: bool, search: Option<&str>) -> Result<Value> {
+        let _guard = self.lock().await?;
         let mut threads = self.read_threads().await?;
         let needle = search.unwrap_or_default().trim().to_lowercase();
         threads.retain(|thread| {
@@ -116,12 +172,18 @@ impl ChatStore {
         Ok(response)
     }
 
-    pub async fn save(&self, thread: Value) -> Result<Value> {
+    pub async fn save(&self, mut thread: Value) -> Result<Value> {
+        let _guard = self.lock().await?;
         let id = Self::id_of(&thread).to_string();
         if id.is_empty() {
             return Err(anyhow!("thread is missing id"));
         }
         let mut threads = self.read_threads().await?;
+        if let Some(existing) = threads.iter().find(|entry| Self::id_of(entry) == id) {
+            if let (Some(old), Some(next)) = (existing.as_object(), thread.as_object_mut()) {
+                for (key, value) in old { next.entry(key.clone()).or_insert_with(|| value.clone()); }
+            }
+        }
         threads.retain(|entry| Self::id_of(entry) != id);
         threads.insert(0, thread.clone());
         self.write_threads(&threads).await?;
@@ -129,6 +191,7 @@ impl ChatStore {
     }
 
     pub async fn set_message_feedback(&self,id:&str,message_id:&str,feedback:Option<&str>,updated_at:u64)->Result<Value>{
+        let _guard = self.lock().await?;
         if feedback.is_some_and(|value|value!="like"&&value!="dislike"){return Err(anyhow!("invalid message rating"));}
         let mut threads=self.read_threads().await?;
         let thread=threads.iter_mut().find(|thread|Self::id_of(thread)==id).ok_or_else(||anyhow!("thread not found"))?;
@@ -151,6 +214,7 @@ impl ChatStore {
     }
 
     pub async fn read(&self, id: &str) -> Result<Value> {
+        let _guard = self.lock().await?;
         let thread = self
             .read_threads()
             .await?
@@ -160,6 +224,7 @@ impl ChatStore {
     }
 
     pub async fn turns(&self, id: &str) -> Result<Value> {
+        let _guard = self.lock().await?;
         let thread = self
             .read_threads()
             .await?
@@ -172,6 +237,7 @@ impl ChatStore {
     }
 
     pub async fn set_archived(&self, id: &str, archived: bool) -> Result<Value> {
+        let _guard = self.lock().await?;
         let mut threads = self.read_threads().await?;
         for thread in &mut threads {
             if Self::id_of(thread) == id {
@@ -183,6 +249,7 @@ impl ChatStore {
     }
 
     pub async fn rename(&self, id: &str, name: &str) -> Result<Value> {
+        let _guard = self.lock().await?;
         let mut threads = self.read_threads().await?;
         for thread in &mut threads {
             if Self::id_of(thread) == id {
@@ -195,6 +262,7 @@ impl ChatStore {
     }
 
     pub async fn delete(&self, id: &str) -> Result<Value> {
+        let _guard = self.lock().await?;
         let mut threads = self.read_threads().await?;
         let before = threads.len();
         threads.retain(|entry| Self::id_of(entry) != id);
@@ -203,6 +271,7 @@ impl ChatStore {
     }
 
     pub async fn fork(&self, id: &str) -> Result<Value> {
+        let _guard = self.lock().await?;
         let mut threads = self.read_threads().await?;
         let Some(mut thread) = threads
             .iter()
@@ -283,6 +352,25 @@ impl RuntimeStateStore {
     }
 }
 
+fn legacy_history_sources(cwd: &Path, app_data: Option<&Path>) -> Vec<PathBuf> {
+    let mut sources = vec![cwd.join(".jynx-state"),cwd.join(".daemon-state")];
+    if let Some(root) = app_data {
+        for app in ["Jynx", "Daemon Studio"] {
+            for directory in ["jynx-harness-state", "daemon-harness-state"] { sources.push(root.join(app).join(directory)); }
+        }
+    }
+    sources
+}
+
+pub fn default_history_root() -> PathBuf {
+    std::env::var_os("JYNX_HISTORY_DIR").or_else(|| std::env::var_os("JYNX_STATE_DIR")).map(PathBuf::from).unwrap_or_else(|| {
+        let home = std::env::var_os("JYNX_HOME").map(PathBuf::from).unwrap_or_else(|| {
+            std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join(".jynx")
+        });
+        home.join("history")
+    })
+}
+
 pub fn default_state_root() -> PathBuf {
     std::env::var_os("JYNX_STATE_DIR")
         .map(PathBuf::from)
@@ -325,7 +413,7 @@ mod feedback_tests{
         assert!(reopened.set_message_feedback("synthetic","one",Some("other"),3).await.is_err());
         reopened.set_message_feedback("synthetic","one",None,4).await.unwrap();
         assert!(reopened.read("synthetic").await.unwrap()["thread"]["turns"][0]["items"][0].get("feedback").is_none());
-        std::fs::remove_file(root.join("threads.json")).unwrap();std::fs::remove_dir(root).unwrap();
+        std::fs::remove_file(root.join("threads.json")).unwrap();std::fs::remove_file(root.join("threads.lock")).unwrap();std::fs::remove_dir(root).unwrap();
     }
 }
 
@@ -346,7 +434,7 @@ mod summary_tests {
   assert_eq!(store.list_summaries(false,Some("SYNTHETIC_AUDIT_MATCH project")).await.unwrap()["data"].as_array().unwrap().len(),1);
   assert_eq!(store.read("synthetic").await.unwrap()["thread"],thread,"summaries must not alter stored context");
   println!("synthetic list bytes: full={}, summary={}",full.to_string().len(),summary.to_string().len());
-  std::fs::remove_file(root.join("threads.json")).unwrap();std::fs::remove_dir(root).unwrap();
+  std::fs::remove_file(root.join("threads.json")).unwrap();std::fs::remove_file(root.join("threads.lock")).unwrap();std::fs::remove_dir(root).unwrap();
  }
 }
 
@@ -365,5 +453,83 @@ mod branding_migration_tests {
         assert_eq!(migrate_state_root(&parent),current);assert!(old.exists());
         std::fs::remove_file(current.join("fixture-marker.txt")).unwrap();
         for directory in [&old,&current,&parent] {std::fs::remove_dir(directory).unwrap();}
+    }
+}
+
+#[cfg(test)]
+mod shared_history_tests {
+    use super::*;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn independent_clients_keep_all_threads_and_preserve_archive_metadata() {
+        let root = std::env::temp_dir().join(format!("jynx-shared-test-{}", uuid::Uuid::new_v4()));
+        let mut tasks = Vec::new();
+        for index in 0..24 {
+            let store = ChatStore::new(&root);
+            tasks.push(tokio::spawn(async move { store.save(json!({"id":format!("synthetic-{index}"),"title":"Synthetic","turns":[]})).await.unwrap(); }));
+        }
+        for task in tasks { task.await.unwrap(); }
+        let store = ChatStore::new(&root);
+        assert_eq!(store.list(false,None).await.unwrap()["data"].as_array().unwrap().len(),24);
+        store.set_archived("synthetic-0",true).await.unwrap();
+        store.save(json!({"id":"synthetic-0","title":"Updated","turns":[]})).await.unwrap();
+        assert_eq!(store.list(true,None).await.unwrap()["data"][0]["archived"],true);
+        store.delete("synthetic-1").await.unwrap();
+        assert!(store.read("synthetic-1").await.unwrap()["thread"].is_null());
+        std::fs::remove_file(root.join("threads.json")).unwrap();
+        std::fs::remove_file(root.join("threads.lock")).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+    #[tokio::test]
+    async fn legacy_import_keeps_originals_and_does_not_resurrect_deleted_chats() {
+        let root = std::env::temp_dir().join(format!("jynx-import-test-{}",uuid::Uuid::new_v4()));
+        let source = root.join("legacy");
+        let target = root.join("shared");
+        fs::create_dir_all(&source).await.unwrap();
+        fs::write(source.join("threads.json"), br#"[{"id":"synthetic","title":"Legacy","turns":[]}]"#).await.unwrap();
+        let store = ChatStore::new(&target);
+        assert_eq!(store.import_legacy(&source).await.unwrap()["imported"],1);
+        store.delete("synthetic").await.unwrap();
+        assert_eq!(store.import_legacy(&source).await.unwrap()["imported"],0);
+        assert!(fs::try_exists(source.join("threads.json")).await.unwrap());
+        for folder in [&source,&target] {
+            let mut entries = fs::read_dir(folder).await.unwrap();
+            while let Some(entry) = entries.next_entry().await.unwrap() { fs::remove_file(entry.path()).await.unwrap(); }
+            fs::remove_dir(folder).await.unwrap();
+        }
+        fs::remove_dir(&root).await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod desktop_history_import_tests {
+    use super::*;
+    #[tokio::test]
+    async fn known_desktop_and_workspace_histories_merge_without_replacing_existing_chats() {
+        let root = std::env::temp_dir().join(format!("jynx-desktop-import-test-{}",uuid::Uuid::new_v4()));
+        let app_data = root.join("app-data");
+        let cwd = root.join("workspace");
+        let shared = root.join("shared");
+        let sources = legacy_history_sources(&cwd,Some(&app_data));
+        let desktop = app_data.join("Jynx/jynx-harness-state");
+        assert!(sources.contains(&desktop));
+        let workspace = cwd.join(".jynx-state");
+        for (directory,id) in [(&desktop,"desktop-synthetic"),(&workspace,"workspace-synthetic")] {
+            fs::create_dir_all(directory).await.unwrap();
+            fs::write(directory.join("threads.json"),serde_json::to_vec(&json!([{"id":id,"title":"Synthetic imported chat","turns":[]}])).unwrap()).await.unwrap();
+        }
+        let store = ChatStore::new(&shared);
+        store.save(json!({"id":"existing-synthetic","title":"Keep existing","turns":[]})).await.unwrap();
+        for source in sources {store.import_legacy(source).await.unwrap();}
+        assert_eq!(store.list(false,None).await.unwrap()["data"].as_array().unwrap().len(),3);
+        assert_eq!(store.read("existing-synthetic").await.unwrap()["thread"]["title"],"Keep existing");
+        for folder in [&desktop,&workspace,&shared] {
+            let mut entries = fs::read_dir(folder).await.unwrap();
+            while let Some(entry) = entries.next_entry().await.unwrap() { fs::remove_file(entry.path()).await.unwrap(); }
+            fs::remove_dir(folder).await.unwrap();
+        }
+        fs::remove_dir(app_data.join("Jynx")).await.unwrap();
+        fs::remove_dir(app_data).await.unwrap();
+        fs::remove_dir(cwd).await.unwrap();
+        fs::remove_dir(root).await.unwrap();
     }
 }

@@ -8,6 +8,7 @@ export default [
   {
     ignores: [
       '**/.cache/**',
+      '**/.development/**',
       '**/build/**',
       '**/dist/**',
       '**/node_modules/**',

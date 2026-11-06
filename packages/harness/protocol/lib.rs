@@ -26,6 +26,8 @@ pub struct RpcError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     pub role: String,
     pub content: String,
     #[serde(default, skip_serializing)]
@@ -88,6 +90,32 @@ pub struct AgentSettings {
 
     #[serde(default)]
     pub final_answer_presentation: bool,
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    #[serde(default)]
+    pub max_output_tokens: Option<u32>,
+    #[serde(default)]
+    pub auto_compact_enabled: Option<bool>,
+    #[serde(default)]
+    pub compact_at_ratio: Option<f32>,
+    #[serde(default)]
+    pub max_tool_rounds: Option<usize>,
+    #[serde(default)]
+    pub disabled_tools: Vec<String>,
+    #[serde(default)]
+    pub native_tool_calling: Option<bool>,
+    #[serde(default)]
+    pub mcp_enabled: Option<bool>,
+    #[serde(default)]
+    pub web_search_max_results: Option<u64>,
+    #[serde(default)]
+    pub web_fetch_max_chars: Option<u64>,
+    #[serde(default)]
+    pub mcp_timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub mcp_max_output_chars: Option<usize>,
+    #[serde(default)]
+    pub host_editor_tools: bool,
 }
 
 impl Default for AgentSettings {
@@ -105,6 +133,19 @@ impl Default for AgentSettings {
             host_terminal_enabled: false,
             compaction_presentation: false,
             final_answer_presentation: false,
+            temperature: None,
+            max_output_tokens: None,
+            auto_compact_enabled: None,
+            compact_at_ratio: None,
+            max_tool_rounds: None,
+            disabled_tools: Vec::new(),
+            native_tool_calling: None,
+            mcp_enabled: None,
+            web_search_max_results: None,
+            web_fetch_max_chars: None,
+            mcp_timeout_ms: None,
+            mcp_max_output_chars: None,
+            host_editor_tools: false,
         }
     }
 }
@@ -167,6 +208,8 @@ pub struct AgentResponse {
     pub compacted: bool,
     #[serde(default)]
     pub context_used: usize,
+    #[serde(default)]
+    pub context_estimated: bool,
     #[serde(default)]
     pub context_limit: usize,
 }

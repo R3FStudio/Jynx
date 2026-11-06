@@ -18,3 +18,6 @@ tokio.workspace = true
 chrono.workspace = true
 
 uuid.workspace = true
+
+fs2 = "0.4"
+sha2.workspace = true

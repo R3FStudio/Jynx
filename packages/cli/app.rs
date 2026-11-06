@@ -1,3 +1,7 @@
+#[path = "history.rs"]
+mod history;
+#[path = "discovery.rs"]
+mod discovery;
 #[path = "menus.rs"]
 mod menus;
 #[path = "preferences.rs"]
@@ -12,7 +16,7 @@ use jynx_mcp::{
     read_config as read_mcp_config,
 };
 use jynx_protocol::{AgentSettings, ChatMessage, ToolEvent};
-use jynx_storage::{ChatStore, RuntimeStateStore, default_state_root};
+use jynx_storage::{ChatStore, RuntimeStateStore, default_state_root, default_history_root};
 use serde_json::Value;
 use std::io::{self as stdio, Write};
 use std::{collections::VecDeque, process::Stdio, sync::Arc};
@@ -96,7 +100,9 @@ pub async fn run() -> Result<()> {
         return Ok(());
     }
     let state_root = default_state_root();
-    let store = ChatStore::new(&state_root);
+    let store = ChatStore::new(default_history_root());
+    store.import_legacy(&state_root).await?;
+    store.import_known_legacy(std::env::current_dir()?).await?;
     let runtime_store = RuntimeStateStore::new(&state_root);
     match args.first().map(String::as_str) {
         Some("chat") => return chat_command(&args[1..]).await,
@@ -430,13 +436,21 @@ fn provider_key_env(endpoint: &str) -> &'static str {
 
 async fn chat_command(args: &[String]) -> Result<()> {
     let mut options = parse_chat_options(args)?;
+    let discovery = discovery::Discovery::new(&preferences::home()).ok();
     let mut cli_runtime: Option<CliRuntime> = None;
     let mut history: Vec<ChatMessage> = Vec::new();
     let mut recent_tools: Vec<ToolEvent> = Vec::new();
+    let mut chat_history = history::History::new(&options.cwd, &options.model);
     if let Some(prompt) = options.prompt.clone() {
         ensure_cli_runtime(&mut options, &mut cli_runtime).await?;
-        history.push(user_message(prompt));
+        publish_discovery(&discovery, &options, &cli_runtime);
+        history.push(user_message(prompt.clone()));
         let response = run_chat_turn(&options, history.clone()).await?;
+        let context = response.context.clone().unwrap_or_else(|| {
+            let mut value = history.clone();
+            value.push(ChatMessage { phase: None, role:"assistant".into(), content:response.text.clone(), images:Vec::new(), tool_calls:None, tool_call_id:None, name:None }); value
+        });
+        chat_history.save_turn(&prompt, &response.text, &response.tools, &context, false).await?;
         if !response.text.trim().is_empty() {
             println!();
         }
@@ -451,6 +465,7 @@ async fn chat_command(args: &[String]) -> Result<()> {
     );
     let mut input_history = Vec::new();
     loop {
+        publish_discovery(&discovery, &options, &cli_runtime);
         let Some(line) = ui::prompt(&input_history)? else {
             break;
         };
@@ -470,6 +485,7 @@ async fn chat_command(args: &[String]) -> Result<()> {
             println!("/permissions  Approval mode / /context  Context window");
             println!("/help    Show CLI commands");
             println!("/status  Show the active model, endpoint, workspace, and permission mode");
+            println!("/history Open shared Jynx conversations, including archived chats");
             println!("/clear   Start a fresh conversation without changing the model");
             println!(
                 "/compact Compact the current model context without clearing the conversation"
@@ -500,8 +516,17 @@ async fn chat_command(args: &[String]) -> Result<()> {
             }
             continue;
         }
+        if prompt == "/history" {
+            match history::History::select(&options.cwd).await {
+                Ok(Some((saved, messages))) => { chat_history = saved; history = messages; println!("Conversation opened.\n"); }
+                Ok(None) => {},
+                Err(error) => eprintln!("Could not open history: {error}"),
+            }
+            continue;
+        }
         if prompt == "/clear" {
             history.clear();
+            chat_history = history::History::new(&options.cwd, &options.model);
             println!("Conversation cleared.\n");
             continue;
         }
@@ -548,14 +573,16 @@ async fn chat_command(args: &[String]) -> Result<()> {
             history.pop();
             continue;
         }
+        publish_discovery(&discovery, &options, &cli_runtime);
         match run_chat_turn(&options, history.clone()).await {
             Ok(response) => {
+                let answer = response.text.clone();
                 recent_tools = response.tools;
                 if let Some(context) = response.context {
                     history = context;
                 } else if !response.text.trim().is_empty() {
                     history.push(ChatMessage {
-                        role: "assistant".into(),
+                        phase: None, role: "assistant".into(),
                         content: response.text,
                         images: Vec::new(),
                         tool_calls: None,
@@ -563,9 +590,13 @@ async fn chat_command(args: &[String]) -> Result<()> {
                         name: None,
                     });
                 }
+                if let Err(error) = chat_history.save_turn(prompt, &answer, &recent_tools, &history, false).await {
+                    eprintln!("Could not save conversation: {error}");
+                }
                 println!();
             }
             Err(error) => {
+                if let Err(save_error) = chat_history.save_turn(prompt, "", &[], &history, true).await { eprintln!("Could not save conversation: {save_error}"); }
                 eprintln!("\nerror: {error}\n");
             }
         }
@@ -575,7 +606,7 @@ async fn chat_command(args: &[String]) -> Result<()> {
 
 fn user_message(content: String) -> ChatMessage {
     ChatMessage {
-        role: "user".into(),
+        phase: None, role: "user".into(),
         content,
         images: Vec::new(),
         tool_calls: None,
@@ -657,6 +688,14 @@ async fn mcp_menu(alternate: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn publish_discovery(discovery: &Option<discovery::Discovery>, options: &ChatOptions, runtime: &Option<CliRuntime>) {
+    if let Some(discovery) = discovery {
+        let ready = options.api_key.is_none() && (options.gguf.is_none() || runtime.is_some());
+        let endpoint = if ready { Some(options.endpoint.as_str()) } else { None };
+        let _ = discovery.update(endpoint, &options.model, options.context_size);
+    }
 }
 
 async fn ensure_cli_runtime(

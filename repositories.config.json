@@ -9,6 +9,12 @@
       "path": "packages/private/Desktop",
       "remote": "https://github.com/R3FStudio/Jynx-Desktop.git",
       "visibility": "private"
+    },
+    {
+      "id": "code",
+      "path": "packages/private/jynx-code",
+      "remote": "https://github.com/R3FStudio/Jynx-Code.git",
+      "visibility": "private"
     }
   ]
 }

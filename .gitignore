@@ -24,3 +24,6 @@ vendor/llama.cpp/binaries/
 /private/
 
 *.egg-info/
+
+.claude/
+.vscode/

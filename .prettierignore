@@ -10,3 +10,5 @@ packages/private/Desktop/.omniroute-runtime
 packages/private/Desktop/.runtime-staging
 packages/harness/target
 packages/private/Desktop/static/branding
+
+**/.development/**

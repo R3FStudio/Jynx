@@ -177,7 +177,7 @@ fn build_compacted(
         output.push(system);
     } else {
         output.push(ChatMessage {
-            role: "system".into(),
+            phase: None, role: "system".into(),
             content: summary,
             images: Vec::new(),
             tool_calls: None,
@@ -237,7 +237,7 @@ mod tests {
 
     fn message(role: &str, content: &str) -> ChatMessage {
         ChatMessage {
-            role: role.into(),
+            phase: None, role: role.into(),
             content: content.into(),
             images: Vec::new(),
             tool_calls: None,

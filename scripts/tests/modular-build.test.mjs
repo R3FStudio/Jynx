@@ -57,3 +57,17 @@ test('unknown source dependencies are configuration errors rather than silently 
  const root=await fixture(t,{desktop:{invalid:true},harness:{}});const run=build(root,['desktop']);
  assert.equal(run.status,0,run.stderr);assert.deepEqual(result(run),{built:['harness'],skipped:['desktop'],failed:[]});
  });
+
+test('extension builds independently of desktop and skips when its own source is unavailable', async t => {
+  const root = await fixture(t, { desktop: {}, sdk: {}, extension: { requires: ['sdk'] } });
+  const installed = build(root);
+  assert.equal(installed.status, 0, installed.stderr);
+  assert.deepEqual(result(installed).built, ['desktop', 'sdk', 'extension']);
+  const publicBuild = build(root, ['desktop']);
+  assert.equal(publicBuild.status, 0, publicBuild.stderr);
+  assert.deepEqual(result(publicBuild), { built: ['sdk', 'extension'], skipped: ['desktop'], failed: [] });
+  const withoutExtension = await fixture(t, { sdk: {}, extension: { missing: true } });
+  const missing = build(withoutExtension);
+  assert.equal(missing.status, 0, missing.stderr);
+  assert.deepEqual(result(missing), { built: ['sdk'], skipped: ['extension'], failed: [] });
+});

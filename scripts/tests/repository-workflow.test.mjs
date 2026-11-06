@@ -80,3 +80,19 @@ test('repository checks accept canonical aliases such as macOS temp links and Wi
  await setupRepositories({root:alias,log:()=>{}});
  const scopes=await repositoryScopes(alias);assert.equal(scopes.length,2);
 });
+
+test('three checkouts use distinct commit messages and keep source in its own remote',async t=>{
+ const root=await fixture(t);const file=path.join(root,'repositories.config.json');const config=JSON.parse(await readFile(file,'utf8'));
+ config.linked.push({id:'code',path:'packages/private/jynx-code',remote:'https://github.com/Example/Code.git',visibility:'private'});
+ await writeFile(file,JSON.stringify(config));const code=path.join(root,'packages/private/jynx-code');await mkdir(code);await writeFile(path.join(code,'extension.txt'),'EXTENSION_CANARY');
+ await setupRepositories({root,log:()=>{}});git(code,'config','user.name','Synthetic test');git(code,'config','user.email','test@example.invalid');
+ await assert.rejects(commitRepositories({root,messages:{public:'Core only'},log:()=>{}}),/provide a commit message/);
+ await assert.rejects(commitRepositories({root,messages:{missing:'Unknown'},log:()=>{}}),/Unknown or uninstalled/);
+ const result=await commitRepositories({root,messages:{public:'Improve the public harness',desktop:'Connect desktop models',code:'Introduce Jynx Code'},log:()=>{}});
+ assert.deepEqual(result.committed,['desktop','code','public']);
+ assert.equal(git(root,'log','-1','--format=%s'),'Improve the public harness');
+ assert.equal(git(code,'log','-1','--format=%s'),'Introduce Jynx Code');
+ assert.doesNotMatch(git(root,'rev-list','--objects','--all'),/extension.txt|packages\/private/);
+ const scope=(await repositoryScopes(root)).find(scope=>scope.id==='code');
+ await assert.rejects(verifyRepository(scope,async()=>({ok:true,json:async()=>({private:false})}),()=> 'synthetic'),/visibility/);
+});

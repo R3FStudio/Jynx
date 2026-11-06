@@ -40,3 +40,22 @@ Use `cargo check` while iterating. Release builds optimize the result and usuall
 `npm run llama:sync` downloads supported runtime bundles. Platform, architecture, and runtime selectors can limit the download. Binaries and weights are not source files to commit. A downloaded runtime and an installed model are separate from a successful source build.
 
 For self-contained installers, follow [releases](releases.md). `npm run package:installers` packages the already built CLI/harness and synchronized llama.cpp runtimes for the host; it does not compile missing native binaries.
+
+## Cleaning generated files
+
+Preview the removal list before cleaning:
+
+```sh
+npm run clean -- --dry-run
+npm run clean
+```
+
+Cleaning removes compiled binaries, release archives and installers, build caches, Python bytecode and package metadata, staged resources, and downloaded llama.cpp runtime binaries. It includes any installed private components. Missing components are skipped. Source files, Git history, lockfiles, model weights, and application data outside the checkout are retained.
+
+The default also removes local `node_modules` folders. To retain installed JavaScript dependencies:
+
+```sh
+npm run clean -- --keep-dependencies
+```
+
+Stop running development builds and applications before cleaning; Windows cannot remove files that are still in use. Reinstall dependencies after a full clean with `npm ci` in each checkout that needs them. Run `npm run llama:sync` again when runtime binaries are needed, then rebuild the required components.

@@ -1,4 +1,5 @@
 export interface ChatMessage {
+  phase?: string;
   role: 'system' | 'developer' | 'user' | 'assistant' | 'tool';
   content: string;
   name?: string;
@@ -58,5 +59,3 @@ export class JynxClient {
   createChatCompletion(input: ChatRequest, options?: RequestOptions): Promise<ChatCompletion>;
   streamChatCompletion(input: ChatRequest, options?: RequestOptions): AsyncGenerator<ChatChunk>;
 }
-
-

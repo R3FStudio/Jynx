@@ -1,2 +1,9 @@
 #!/bin/sh
-exec node "scripts/repositories.mjs" guard public "$2"
+if [ -f "scripts/repositories.mjs" ]; then
+  exec node "scripts/repositories.mjs" guard public "$2"
+fi
+if [ -f "scripts/check-remote.mjs" ]; then
+  exec node scripts/check-remote.mjs "$2"
+fi
+echo "Repository coordinator is unavailable; run repo:setup in the parent workspace." >&2
+exit 1

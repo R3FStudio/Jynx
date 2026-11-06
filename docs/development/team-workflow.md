@@ -31,3 +31,15 @@ Resolve source conflicts in the owning layer first. For a lockfile conflict, set
 Document workflows and public contracts, rather than temporary implementation details. Link to the manifest, command help, configuration, or workflow that owns a value. Avoid copying current version numbers, dependency lists, runner matrices, and exact test counts into prose.
 
 When changing behavior, update its guide in the same pull request. CI checks version alignment and local documentation links. Those checks catch drift in structure; reviewers still need to confirm that the instructions describe the resulting behavior. Archive obsolete instructions instead of leaving two contradictory workflows.
+
+## Plan changes by contract
+
+Identify which contract changes before editing: model/provider requests, harness events, thread persistence, SDK types, or CLI presentation. Additive protocol fields should have defaults so old stored records remain readable. A stored conversation is not a safe debugging fixture; build a small synthetic record that demonstrates the behavior instead.
+
+Keep side effects in the harness tool path. A client should render authoritative tool state, not duplicate agent execution. Keep provider-native settings distinct from prompt instructions. Review request cancellation, late events, restored state, and error recovery for lifecycle changes.
+
+## Review checklist
+
+A review should explain the observable problem, resulting behavior, relevant checks, and any remaining limitation. Check dependency pins and lockfiles together. Inspect generated package contents when changing packaging. Keep credentials, user state, model weights, and generated artifacts out of source commits.
+
+Use the manifest and command implementations as the authority for current versions and flags; documentation should explain the workflow rather than copy every default. Update the appropriate guide when a contract or user-visible procedure changes. If a release spans repositories, record the tested commit set in release notes or the private review.

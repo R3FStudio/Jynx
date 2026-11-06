@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::time::Instant;
-use jynx_model::{ModelClient, ModelReply};
+use jynx_model::{ModelClient, ModelReply, progress_text_is_fragment};
 use jynx_protocol::ChatMessage;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -47,6 +47,9 @@ impl StepPresentation {
             } else if let Some(text) = event["text"].as_str() {
                 self.pending.push_str(text);
             }
+        } else if event["type"] == "text_delta" && !self.pending.is_empty() {
+            if let Some(text) = event["text"].as_str() { self.pending.push_str(text); }
+            self.commentary(events);
         } else {
             let _ = events.send(self.with_pace(event));
         }
@@ -63,7 +66,7 @@ impl StepPresentation {
     }
 
     pub(super) fn commentary(&mut self, events: &UnboundedSender<Value>) {
-        if !self.pending.is_empty() {
+        if !progress_text_is_fragment(&self.pending) {
             let text = std::mem::take(&mut self.pending);
             let _ = events.send(self.with_pace(json!({"type":"text_delta","text":text,"accumulated_text":text})));
         }
@@ -128,6 +131,19 @@ mod tests {
         step.consume(json!({"type":"text_delta","text":"replacement"}), &events);
         step.commentary(&events);
         assert_eq!(received.try_recv().unwrap()["text"], "replacement");
+        assert!(received.try_recv().is_err());
+    }
+    #[test]
+    fn a_single_letter_is_held_across_tool_intent_until_the_dialogue_arrives() {
+        let (events, mut received) = unbounded_channel();
+        let mut step = StepPresentation { enabled: true, ..Default::default() };
+        step.consume(json!({"type":"text_delta","text":"I","accumulated_text":"I"}), &events);
+        step.consume(json!({"type":"status","tool_kind":"read_file"}), &events);
+        assert_eq!(received.try_recv().unwrap()["type"], "status");
+        assert!(received.try_recv().is_err());
+        step.consume(json!({"type":"text_delta","text":" will check the fixture.","accumulated_text":"I will check the fixture."}), &events);
+        assert_eq!(received.try_recv().unwrap()["text"], "I will check the fixture.");
+        step.commentary(&events);
         assert!(received.try_recv().is_err());
     }
     #[test]

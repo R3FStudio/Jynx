@@ -145,6 +145,7 @@ pub fn schemas(
     host_terminal_enabled: bool,
 ) -> Value {
     let mut tools = vec![
+        json!({"type":"function","function":{"name":"find_files","description":"Find workspace file paths by a case-insensitive name or path substring, respecting ignore files.","parameters":{"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":500}},"required":["query"]}}}),
         json!({"type":"function","function":{"name":"ask_user","description":"Ask necessary clarification questions. Call alone; execution stops and the next user message supplies the answer. Free text is always allowed.","parameters":{"type":"object","properties":{"questions":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","properties":{"id":{"type":"string"},"question":{"type":"string"},"options":{"type":"array","maxItems":5,"items":{"type":"string"}}},"required":["question"]}}},"required":["questions"]}}}),
         json!({
             "type": "function",
@@ -898,6 +899,16 @@ pub async fn execute(
             fs::write(&path, &updated).await?;
             let ui_diff = ui_unified_diff(&path, &content, &updated);
             Ok(json!({"path":path,"written":path,"change_kind":"edit","replacements":1,"bytes":updated.len(),"_ui_diff":ui_diff}).to_string())
+        }
+        "find_files" => {
+            let root=sandbox.resolve(args["path"].as_str().unwrap_or("."),false)?;
+            let query=args["query"].as_str().ok_or_else(||anyhow!("missing query"))?.to_lowercase();
+            let limit=args["max_results"].as_u64().unwrap_or(80).clamp(1,500) as usize;
+            tokio::task::spawn_blocking(move||{
+                let mut matches=Vec::new();let mut truncated=false;
+                for entry in code_walk(&root,None).filter_map(Result::ok){if !entry.file_type().is_some_and(|kind|kind.is_file()){continue;}let file=entry.path().display().to_string();if file.to_lowercase().contains(&query){if matches.len()==limit{truncated=true;break;}matches.push(file);}}
+                Ok::<String,anyhow::Error>(json!({"files":matches,"truncated":truncated}).to_string())
+            }).await?
         }
         "list_files" => {
             let raw = args["path"].as_str().unwrap_or(".");

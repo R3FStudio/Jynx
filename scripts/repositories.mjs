@@ -50,7 +50,7 @@ export async function setupRepositories({root=projectRoot,clone=false,log=consol
     }else if(!current)git(scope.directory,['remote','add','origin',scope.remote]);
     const hooks=scope.id==='public'?'.githooks':'git-hooks';await mkdir(path.join(scope.directory,hooks),{recursive:true});
     const runner=path.relative(scope.directory,path.join(root,'scripts/repositories.mjs')).split(path.sep).join('/');
-    const push=path.join(scope.directory,hooks,'pre-push');await writeFile(push,`#!/bin/sh\nexec node "${runner}" guard ${scope.id} "$2"\n`);await chmod(push,0o755);
+    const push=path.join(scope.directory,hooks,'pre-push');await writeFile(push,`#!/bin/sh\nif [ -f "${runner}" ]; then\n  exec node "${runner}" guard ${scope.id} "$2"\nfi\nif [ -f "scripts/check-remote.mjs" ]; then\n  exec node scripts/check-remote.mjs "$2"\nfi\necho "Repository coordinator is unavailable; run repo:setup in the parent workspace." >&2\nexit 1\n`);await chmod(push,0o755);
     if(scope.id==='public'){
       const commit=path.join(scope.directory,hooks,'pre-commit');await writeFile(commit,'#!/bin/sh\nexec node scripts/repositories.mjs guard-index\n');await chmod(commit,0o755);
     }
@@ -82,9 +82,11 @@ async function installedScopes(root){
   const scopes=await repositoryScopes(root);const result=[];
   for(const scope of scopes){if(!await exists(scope.directory))continue;requireOwnRepository(scope);result.push(scope);}return result;
 }
-export async function commitRepositories({root=projectRoot,message,log=console.log}={}){
-  if(typeof message!=='string'||!message.trim())throw new Error('Provide a commit message: npm run repo:commit -- "Your message"');
+export async function commitRepositories({root=projectRoot,message,messages={},log=console.log}={}){
+  if((typeof message!=='string'||!message.trim())&&!Object.values(messages).some(value=>typeof value==='string'&&value.trim()))throw new Error('Provide a commit message: npm run repo:commit -- "Your message"');
   const scopes=await installedScopes(root);assertPublicIndex(root);
+  for(const id of Object.keys(messages))if(!scopes.some(scope=>scope.id===id))throw new Error(`Unknown or uninstalled repository: ${id}`);
+  for(const scope of scopes)if(!(messages[scope.id]||message||'').trim())throw new Error(`${scope.id}: provide a commit message before committing any repository.`);
   for(const scope of scopes)if(git(scope.directory,['diff','--name-only','--diff-filter=U']))throw new Error(`${scope.id}: resolve merge conflicts before committing.`);
   const committed=[],unchanged=[];
 
@@ -93,7 +95,7 @@ export async function commitRepositories({root=projectRoot,message,log=console.l
     if(scope.id==='public')assertPublicIndex(root);
     let changed=true;try{git(scope.directory,['diff','--cached','--quiet']);changed=false;}catch{}
     if(!changed){unchanged.push(scope.id);log(`${scope.id}: no changes.`);continue;}
-    git(scope.directory,['commit','--quiet','-m',message]);committed.push(scope.id);log(`${scope.id}: committed.`);
+    git(scope.directory,['commit','--quiet','-m',messages[scope.id]||message]);committed.push(scope.id);log(`${scope.id}: committed.`);
   }
   return {committed,unchanged};
 }
@@ -133,7 +135,13 @@ async function main(){
     for(const scope of await installedScopes(projectRoot)){console.log(`${scope.id}:`);console.log(git(scope.directory,['status','--short'])||'clean');}return;
   }
   if(command==='commit'||command==='sync'){
-    await commitRepositories({message:args.join(' ')});if(command==='sync')await pushRepositories();return;
+    const messages={};const shared=[];
+    for(let index=0;index<args.length;index++){
+      if(args[index]==='--message'){
+        const id=args[++index],value=args[++index];if(!id||!value)throw new Error('Use --message <repository id> "Commit message".');messages[id]=value;
+      }else shared.push(args[index]);
+    }
+    await commitRepositories({message:shared.join(' '),messages});if(command==='sync')await pushRepositories();return;
   }
   if(command==='push')return pushRepositories();
   throw new Error('Use setup, clone, status, commit, push, or sync.');

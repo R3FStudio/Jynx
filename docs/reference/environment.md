@@ -23,3 +23,7 @@ Flags also configure connection, context, reasoning, permissions, and runtime st
 For diagnostics, use fresh state and MCP paths. Do not record keys in shell examples, source, issues, or screenshots.
 
 `JYNX_NO_UPDATE_CHECK=1` disables CLI startup checks against GitHub releases. Piped jobs and machine-protocol commands never run these checks.
+
+`JYNX_HISTORY_DIR` overrides the shared local conversation directory. It defaults to `JYNX_HOME/history` or `~/.jynx/history`. An explicit `JYNX_STATE_DIR` also isolates history unless `JYNX_HISTORY_DIR` is set. Use the same history override in each client that should share conversations.
+
+Set `JYNX_LEGACY_IMPORT=off` to disable automatic discovery of older app and workspace history, such as when running an isolated development environment.

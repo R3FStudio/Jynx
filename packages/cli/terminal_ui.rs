@@ -16,6 +16,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/context", "Change the context window"),
     ("/status", "Inspect the current session"),
     ("/compact", "Compact this conversation"),
+    ("/history", "Open shared Jynx conversations"),
     ("/clear", "Start a fresh conversation"),
     ("/tools", "Inspect tool arguments and results"),
     ("/logs", "Inspect managed runtime output"),

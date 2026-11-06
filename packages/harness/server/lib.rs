@@ -75,6 +75,7 @@ pub async fn serve_stdio() -> Result<()> {
             let controls = controls.lock().await;
             let control = controls.get(request.params["request_id"].as_str().unwrap_or_default());
             if let Some(control) = control {
+                if let Some(id)=request.params["host_tool_id"].as_str() { control.resolve_editor_tool(id,request.params["output"].clone()); }
                 if let Some(paused) = request.params["paused"].as_bool() {
                     control.set_paused(paused, request.params["restart_compaction"].as_bool().unwrap_or(false));
                 }
@@ -207,6 +208,10 @@ async fn handle(request: RpcRequest) -> RpcResponse {
             let result=tokio::task::spawn_blocking(move ||jynx_context::compact_on_request(&messages,limit)).await?;
             Ok(json!({"messages":result.messages,"compacted":result.compacted,"before":before,"used":jynx_context::estimate_tokens(&result.messages),"limit":limit}))
         }.await,
+        "thread/import" => async {
+            let source = request.params["source"].as_str().ok_or_else(|| anyhow::anyhow!("missing source"))?;
+            store().import_legacy(source).await
+        }.await,
         "thread/list" => state_list(request.params).await,
         "thread/save" => state_save(request.params).await,
         "thread/feedback" => state_feedback(request.params).await,
@@ -302,7 +307,7 @@ async fn run_agent(
 }
 
 fn store() -> ChatStore {
-    ChatStore::new(default_state_root())
+    ChatStore::new(jynx_storage::default_history_root())
 }
 fn thread_id(params: &Value) -> Result<&str> {
     params["threadId"]
@@ -311,6 +316,7 @@ fn thread_id(params: &Value) -> Result<&str> {
 }
 
 async fn state_list(params: Value) -> Result<Value> {
+    store().import_known_legacy(std::env::current_dir()?).await?;
     let archived=params["archived"].as_bool().unwrap_or(false);
     let search=params["searchTerm"].as_str();
     if params["summaryOnly"].as_bool().unwrap_or(false) { store().list_summaries(archived,search).await }

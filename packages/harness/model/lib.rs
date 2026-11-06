@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicU64, AtomicBool, Ordering},
 };
 use tokio::{
     sync::mpsc::UnboundedSender,
@@ -49,6 +49,8 @@ impl std::error::Error for EmptyResponseError {}
 
 #[derive(Debug, Clone)]
 pub struct ModelClient {
+    temperature: Option<f64>,
+    max_output_tokens: Option<u32>,
     endpoint: String,
     model: String,
     api_key: Option<String>,
@@ -58,12 +60,34 @@ pub struct ModelClient {
     local_reasoning_caps: Arc<Mutex<Option<Value>>>,
     client: reqwest::Client,
     token_count_route_missing: Arc<Mutex<bool>>,
+    tokenizer_routes_missing: Arc<AtomicBool>,
+    stream_usage_supported: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelReply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub input_tokens: Option<usize>,
+    #[serde(default)]
+    pub output_tokens: Option<usize>,
     pub text: String,
     pub tool_calls: Vec<ModelToolCall>,
+    #[serde(default)]
+    pub finish_reason: Option<String>,
+}
+impl ModelReply {
+    pub fn output_limit_reached(&self) -> bool {
+        matches!(self.finish_reason.as_deref(), Some("length" | "max_tokens" | "max_output_tokens"))
+    }
+}
+
+pub fn progress_text_is_fragment(text: &str) -> bool {
+    let text = text.trim();
+    text.is_empty()
+        || text.chars().all(|ch| ch.is_ascii_punctuation() || ch.is_whitespace())
+        || (text.len() == 1 && text.as_bytes()[0].is_ascii_alphabetic())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +107,11 @@ struct ToolAccumulator {
 static EMULATED_TOOL_CALL_ID: AtomicU64 = AtomicU64::new(1);
 
 impl ModelClient {
+    pub fn with_generation_settings(mut self, temperature: Option<f64>, max_output_tokens: Option<u32>) -> Self {
+        self.temperature = temperature.filter(|value| value.is_finite()).map(|value| value.clamp(0.0,1.5));
+        self.max_output_tokens = max_output_tokens.map(|value|value.clamp(1,1_048_576));
+        self
+    }
     pub fn new(
         endpoint: impl Into<String>,
         model: impl Into<String>,
@@ -91,6 +120,8 @@ impl ModelClient {
         reasoning_effort: impl Into<String>,
     ) -> Self {
         Self {
+            temperature: None,
+            max_output_tokens: None,
             endpoint: endpoint.into(),
             model: model.into(),
             api_key,
@@ -99,6 +130,8 @@ impl ModelClient {
             reasoning_catalog: Arc::new(Mutex::new(None)),
             local_reasoning_caps: Arc::new(Mutex::new(None)),
             token_count_route_missing: Arc::new(Mutex::new(false)),
+            tokenizer_routes_missing: Arc::new(AtomicBool::new(false)),
+            stream_usage_supported: Arc::new(AtomicBool::new(true)),
             client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(20))
                 .build()
@@ -328,11 +361,17 @@ impl ModelClient {
                     let body = response.text().await.unwrap_or_default();
                     if Self::reasoning_parameter_rejected(status,&body,&active_payload){
                         let levels=reasoning::error_levels(&body);
-                        if let Some(selected)=reasoning::select(&self.reasoning_effort,&levels){
-                            let value=reasoning::native_value(&selected).unwrap_or(Value::Null);
+                        if !levels.is_empty(){
+                            let selected=reasoning::select(&self.reasoning_effort,&levels).unwrap_or_else(||"default".into());
+                            let value=reasoning::native_value(&selected);
                             let current=active_payload.get("reasoning_effort").or_else(||active_payload.pointer("/reasoning/effort"));
-                            if current!=Some(&value){
-                                if active_payload.get("reasoning").is_some(){active_payload["reasoning"]["effort"]=value;}else{active_payload["reasoning_effort"]=value;}
+                            if current!=value.as_ref(){
+                                if let Some(value)=value{
+                                    if active_payload.get("reasoning").is_some(){active_payload["reasoning"]["effort"]=value;}else{active_payload["reasoning_effort"]=value;}
+                                }else{
+                                    active_payload.as_object_mut().unwrap().remove("reasoning_effort");
+                                    if let Some(reasoning)=active_payload.get_mut("reasoning").and_then(Value::as_object_mut){reasoning.remove("effort");}
+                                }
                                 let props=json!({"reasoning_effort_levels":levels.iter().filter_map(|level|reasoning::native_value(level)).collect::<Vec<_>>()});
                                 let options=reasoning::capability_options(&props).unwrap_or_default();
                                 if self.local_compat{if let Ok(mut cache)=self.local_reasoning_caps.lock(){*cache=Some(props);}}
@@ -507,7 +546,7 @@ impl ModelClient {
         }
         let mut normalized = Vec::with_capacity(conversation.len() + 1);
         normalized.push(ChatMessage {
-            role: "system".into(),
+            phase: None, role: "system".into(),
             content: system_parts.join("\n\n"),
             images: Vec::new(),
             tool_calls: None,
@@ -577,7 +616,9 @@ impl ModelClient {
             .into_iter()
             .map(|message| -> Result<Value> {
                 let images = message.images.clone();
+                let assistant = message.role == "assistant";
                 let mut value = serde_json::to_value(message).unwrap_or(Value::Null);
+                if !assistant { value.as_object_mut().unwrap().remove("phase"); }
                 if images.is_empty() {
                     return Ok(value);
                 }
@@ -767,6 +808,7 @@ impl ModelClient {
         let (visible, mut legacy_calls) = parse_tagged(&xml_visible, "<tool_call>", "</tool_call>");
         calls.append(&mut legacy_calls);
         ModelReply {
+            input_tokens: None, output_tokens: None, phase: None, finish_reason: None,
             text: visible.trim().to_string(),
             tool_calls: calls,
         }
@@ -824,18 +866,36 @@ impl ModelClient {
         Self::clean_dialogue_text(&visible).trim().to_string()
     }
 
+    fn input_usage(value: &Value) -> Option<usize> {
+        value["usage"]["prompt_tokens"].as_u64().or_else(||value["usage"]["input_tokens"].as_u64()).or_else(||value["timings"]["prompt_n"].as_u64()).and_then(|tokens|usize::try_from(tokens).ok())
+    }
+    fn output_usage(value: &Value) -> Option<usize> {
+        value["usage"]["completion_tokens"].as_u64().or_else(||value["usage"]["output_tokens"].as_u64()).or_else(||value["timings"]["predicted_n"].as_u64()).and_then(|tokens|usize::try_from(tokens).ok())
+    }
+
+    fn message_phase(value: &Value) -> Option<String> {
+        let choice = &value["choices"][0];
+        [&choice["delta"], &choice["message"], choice, value].into_iter()
+            .find_map(|item| item["phase"].as_str()
+                .and_then(|phase| match phase {
+                    "commentary" | "partial_answer" | "final_answer" => Some(phase.to_owned()),
+                    _ => None,
+                }))
+    }
+
     fn parse_message(value: &Value) -> ModelReply {
         let choice = value
             .get("choices")
             .and_then(Value::as_array)
             .and_then(|choices| choices.first());
+        let finish_reason = choice.and_then(|choice| choice.get("finish_reason")).or_else(||value.get("stop_reason")).and_then(Value::as_str).map(str::to_owned);
         let null = Value::Null;
         let message = choice
             .and_then(|choice| choice.get("message"))
             .or_else(|| value.get("message"))
             .unwrap_or(&null);
         if private_text::private_part(value)||choice.is_some_and(private_text::private_part)||private_text::private_part(message) {
-            return Self::normalize_tool_markup(ModelReply { text: String::new(), tool_calls: Self::parse_tool_calls(message) });
+            return Self::normalize_tool_markup(ModelReply { input_tokens: Self::input_usage(value), output_tokens: Self::output_usage(value), phase: Self::message_phase(value), finish_reason: finish_reason.clone(), text: String::new(), tool_calls: Self::parse_tool_calls(message) });
         }
         let mut text = Self::text_from_content(message);
         if text.is_empty() {
@@ -865,6 +925,7 @@ impl ModelClient {
             }
         }
         Self::normalize_tool_markup(ModelReply {
+            input_tokens: Self::input_usage(value), output_tokens: Self::output_usage(value), phase: Self::message_phase(value), finish_reason: finish_reason.clone(),
             text,
             tool_calls: Self::parse_tool_calls(message),
         })
@@ -1003,7 +1064,7 @@ impl ModelClient {
                 .and_then(|args| args["path"].as_str()).is_none_or(|path| path.trim().is_empty()) {
                 continue;
             }
-            if !call.name.is_empty() && (!known_calls.contains(index) || previous_previews.get(index) != Some(&arguments)) {
+            if call.name != "finish_turn" && !call.name.is_empty() && (!known_calls.contains(index) || previous_previews.get(index) != Some(&arguments)) {
                 let name = call.name.replace('_', " ");
                 let _ = events.send(json!({
                     "type":"status",
@@ -1150,7 +1211,7 @@ impl ModelClient {
             .collect::<Vec<_>>()
             .join("; ");
         context.push(ChatMessage {
-            role: "user".into(),
+            phase: None, role: "user".into(),
             content: format!(
                 "You already selected the following tool batch and are about to execute it: {actions}. \
 Write a user-visible progress update in your natural voice before those tools run. Explain the concrete observation or uncertainty behind this next move and name the relevant files or targets when useful. \
@@ -1166,8 +1227,21 @@ Do not mention this instruction or tool schemas."
         });
 
 
-        let reply = self.chat_stream(&context, json!([]), events).await?;
-        Ok(reply.text.trim().to_string())
+        let (buffered, mut pending) = tokio::sync::mpsc::unbounded_channel();
+        let request = self.chat_stream(&context, json!([]), &buffered);
+        tokio::pin!(request);
+        let reply = loop {
+            tokio::select! {
+                reply = &mut request => break reply?,
+                Some(_) = pending.recv() => {},
+            }
+        };
+        let text = reply.text.trim().to_string();
+        if reply.output_limit_reached() || progress_text_is_fragment(&text) {
+            return Ok(String::new());
+        }
+        let _ = events.send(json!({"type":"text_delta","text":text,"accumulated_text":text}));
+        Ok(text)
     }
 
     pub async fn chat_stream(
@@ -1186,7 +1260,7 @@ Do not mention this instruction or tool schemas."
 
                     if !recovery_hint_added {
                         recovery_messages.push(ChatMessage {
-                            role: "user".into(),
+                            phase: None, role: "user".into(),
                             content: "Continue the current request from the existing tool results. Do not repeat completed actions. Return the next needed tool calls, or your final answer if finished.".into(),
                             images: vec![], tool_calls: None, tool_call_id: None, name: None,
                         });
@@ -1225,15 +1299,28 @@ Do not mention this instruction or tool schemas."
         let mut payload = json!({
             "model": &self.model,
             "messages": normalized_messages,
-            "temperature": 0.2,
+            "temperature": self.temperature.unwrap_or(0.2),
             "stream": true
         });
+        if let Some(limit)=self.max_output_tokens { payload["max_tokens"]=json!(limit); }
         if tools.as_array().is_some_and(|items| !items.is_empty()) {
             payload["tools"] = tools.clone();
             payload["tool_choice"] = json!("auto");
             if self.local_compat { payload["parallel_tool_calls"] = json!(true); }
         }
-        let response = self.send_payload_with_retry(&payload, Some(events), "model API request failed").await?;
+        let mut wants_usage = self.stream_usage_supported.load(Ordering::Relaxed);
+        if wants_usage { payload["stream_options"] = json!({"include_usage":true}); }
+        let response = match self.send_payload_with_retry(&payload, Some(events), "model API request failed").await {
+            Ok(response) => response,
+            Err(error) if wants_usage && ["stream_options", "include_usage"].iter().any(|field|error.to_string().contains(field)) => {
+                self.stream_usage_supported.store(false, Ordering::Relaxed);
+                payload.as_object_mut().unwrap().remove("stream_options");
+                wants_usage = false;
+                self.send_payload_with_retry(&payload, Some(events), "model API request failed").await?
+            }
+            Err(error) => return Err(error),
+        };
+
         let content_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -1246,7 +1333,7 @@ Do not mention this instruction or tool schemas."
                 .await
                 .map_err(|error| StreamBodyError(format!("{error:#}")))?;
             let reply = Self::parse_message(&value);
-            if !reply.text.trim().is_empty() || !reply.tool_calls.is_empty() {
+            if reply.output_limit_reached() || !reply.text.trim().is_empty() || !reply.tool_calls.is_empty() {
                 if !reply.text.is_empty() {
                     let _ = events.send(json!({"type":"text_delta","text":reply.text}));
                 }
@@ -1272,17 +1359,20 @@ Do not mention this instruction or tool schemas."
         let mut buffer = Vec::<u8>::new();
         let mut text = String::new();
         let mut calls: BTreeMap<usize, ToolAccumulator> = BTreeMap::new();
+        let mut input_tokens = None;
+        let mut output_tokens = None;
         let mut stream_channel=None;
+        let mut phase = None;
         let mut stream_finished = false;
+        let mut finish_reason = None;
+        let mut usage_deadline = None;
         'response: loop {
-            let next = tokio::time::timeout(MODEL_IDLE_TIMEOUT, stream.next())
-                .await
-                .map_err(|_| {
-                    StreamBodyError(format!(
-                        "no response data for {} minutes",
-                        MODEL_IDLE_TIMEOUT.as_secs() / 60
-                    ))
-                })?;
+            let wait = usage_deadline.map(|deadline: tokio::time::Instant|deadline.saturating_duration_since(tokio::time::Instant::now())).unwrap_or(MODEL_IDLE_TIMEOUT);
+            let next = match tokio::time::timeout(wait, stream.next()).await {
+                Ok(next) => next,
+                Err(_) if stream_finished => break,
+                Err(_) => return Err(StreamBodyError(format!("no response data for {} minutes", MODEL_IDLE_TIMEOUT.as_secs()/60)).into()),
+            };
             let Some(chunk) = next else { break };
             let chunk = chunk.map_err(|error| StreamBodyError(format!("{error:#}")))?;
             buffer.extend_from_slice(&chunk);
@@ -1307,11 +1397,20 @@ Do not mention this instruction or tool schemas."
                     continue;
                 }
                 if let Ok(value) = serde_json::from_str::<Value>(data) {
+                    input_tokens = Self::input_usage(&value).or(input_tokens);
+                    output_tokens = Self::output_usage(&value).or(output_tokens);
+                    phase = Self::message_phase(&value).or(phase);
                     Self::process_stream_value_with_channel(&value, &mut text, &mut calls, &mut stream_channel, events);
-                    if value["choices"][0]["finish_reason"].as_str().is_some_and(|reason| !reason.is_empty()) {
+                    if stream_finished && input_tokens.is_some() { buffer.clear(); break 'response; }
+                    if let Some(reason) = value["choices"][0]["finish_reason"].as_str().filter(|reason| !reason.is_empty()) {
+                        finish_reason = Some(reason.to_owned());
                         stream_finished = true;
-                        buffer.clear();
-                        break 'response;
+                        if wants_usage && input_tokens.is_none() {
+                            usage_deadline.get_or_insert(tokio::time::Instant::now() + Duration::from_millis(250));
+                        } else {
+                            buffer.clear();
+                            break 'response;
+                        }
                     }
                 }
             }
@@ -1330,8 +1429,12 @@ Do not mention this instruction or tool schemas."
                     continue;
                 }
                 if let Ok(value) = serde_json::from_str::<Value>(data) {
+                    input_tokens = Self::input_usage(&value).or(input_tokens);
+                    output_tokens = Self::output_usage(&value).or(output_tokens);
+                    phase = Self::message_phase(&value).or(phase);
                     Self::process_stream_value_with_channel(&value, &mut text, &mut calls, &mut stream_channel, events);
-                    if value["choices"][0]["finish_reason"].as_str().is_some_and(|reason| !reason.is_empty()) {
+                    if let Some(reason) = value["choices"][0]["finish_reason"].as_str().filter(|reason| !reason.is_empty()) {
+                        finish_reason = Some(reason.to_owned());
                         stream_finished = true;
                     }
                 }
@@ -1341,9 +1444,10 @@ Do not mention this instruction or tool schemas."
         if !stream_finished {
             return Err(StreamBodyError("model stream ended before its completion marker; incomplete tool calls were not executed".into()).into());
         }
-        let tool_calls = Self::finish_stream_calls(calls)?;
-        let reply = Self::normalize_tool_markup(ModelReply { text, tool_calls });
-        if reply.text.trim().is_empty() && reply.tool_calls.is_empty() {
+        let truncated = matches!(finish_reason.as_deref(), Some("length" | "max_tokens" | "max_output_tokens"));
+        let tool_calls = if truncated { Vec::new() } else { Self::finish_stream_calls(calls)? };
+        let reply = Self::normalize_tool_markup(ModelReply { input_tokens, output_tokens, phase, finish_reason, text, tool_calls });
+        if !reply.output_limit_reached() && reply.text.trim().is_empty() && reply.tool_calls.is_empty() {
 
 
 
@@ -1384,7 +1488,7 @@ mod tests {
         ModelClient::process_stream_value(&json!({"choices":[{"delta":{"channel":"analysis","content":"Private role analysis"}}]}), &mut String::new(), &mut std::collections::BTreeMap::new(), &events);
         assert!(!std::iter::from_fn(||receiver.try_recv().ok()).any(|event|event["type"]=="text_delta"));
         assert!(ModelClient::parse_message(&json!({"choices":[{"message":{"channel":"analysis","content":"Private role analysis"}}]})).text.is_empty());
-        let private_call = ModelClient::normalize_tool_markup(ModelReply { text:"<think><tool_call>{\"name\":\"write_file\",\"arguments\":{\"path\":\"private.txt\",\"content\":\"plan\"}}</tool_call></think>I will inspect the parser.".into(), tool_calls:vec![] });
+        let private_call = ModelClient::normalize_tool_markup(ModelReply { input_tokens: None, output_tokens: None, phase: None, finish_reason: None, text:"<think><tool_call>{\"name\":\"write_file\",\"arguments\":{\"path\":\"private.txt\",\"content\":\"plan\"}}</tool_call></think>I will inspect the parser.".into(), tool_calls:vec![] });
         assert!(private_call.tool_calls.is_empty(), "private deliberation is never an executable text tool call");
         assert_eq!(private_call.text, "I will inspect the parser.");
     }
@@ -1489,7 +1593,7 @@ mod tests {
                 socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
             }
         });
-        let messages=vec![ChatMessage{role:"assistant".into(),content:"Earlier work".into(),images:vec![],tool_calls:Some(json!([{"id":"already-done","type":"function","function":{"name":"read_file","arguments":"{}"}}])),tool_call_id:None,name:None},ChatMessage{role:"tool".into(),content:"PRIOR_RESULT_RETAINED".into(),images:vec![],tool_calls:None,tool_call_id:Some("already-done".into()),name:Some("read_file".into())}];
+        let messages=vec![ChatMessage{phase: None, role:"assistant".into(),content:"Earlier work".into(),images:vec![],tool_calls:Some(json!([{"id":"already-done","type":"function","function":{"name":"read_file","arguments":"{}"}}])),tool_call_id:None,name:None},ChatMessage{phase: None, role:"tool".into(),content:"PRIOR_RESULT_RETAINED".into(),images:vec![],tool_calls:None,tool_call_id:Some("already-done".into()),name:Some("read_file".into())}];
         let client=ModelClient::new(format!("http://{address}/v1"),"fixture",None,false,"xhigh");
         let (events,mut receiver)=tokio::sync::mpsc::unbounded_channel();
         let reply=tokio::time::timeout(std::time::Duration::from_secs(10),client.chat_stream(&messages,json!([{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]),&events)).await.unwrap().unwrap();
@@ -1717,8 +1821,53 @@ mod tests {
         assert!(client.payload_with_reasoning(json!({})).get("reasoning_effort").is_none());
     }
 
+    #[test]
+    fn phases_survive_json_stream_metadata_and_assistant_context_roundtrips() {
+        for phase in ["commentary", "partial_answer", "final_answer"] {
+            let reply = ModelClient::parse_message(&json!({"choices":[{"message":{"content":"Arbitrary synthetic text", "phase":phase},"finish_reason":"stop"}]}));
+            assert_eq!(reply.phase.as_deref(), Some(phase));
+            assert_eq!(ModelClient::message_phase(&json!({"choices":[{"delta":{"phase":phase}}]})).as_deref(), Some(phase));
+        }
+        assert!(ModelClient::message_phase(&json!({"choices":[{"delta":{"channel":"final","content":"Public progress text"}}]})).is_none());
+        let client = ModelClient::new("http://127.0.0.1:1/v1", "fixture", None, false, "none");
+        let messages: Vec<jynx_protocol::ChatMessage> = serde_json::from_value(json!([
+            {"role":"assistant","content":"Synthetic update","phase":"commentary"},
+            {"role":"user","content":"Synthetic follow-up","phase":"commentary"}
+        ])).unwrap();
+        let wire = client.request_messages(&messages).unwrap();
+        assert_eq!(wire[0]["phase"], "commentary");
+        assert!(wire[1].get("phase").is_none());
+        let restored: Vec<jynx_protocol::ChatMessage> = serde_json::from_str(&serde_json::to_string(&messages).unwrap()).unwrap();
+        assert_eq!(restored[0].phase.as_deref(), Some("commentary"));
+    }
+
     #[tokio::test]
-    async fn progress_dialogue_is_visible_before_generation_finishes() {
+    async fn streaming_usage_after_the_finish_reason_is_captured_without_waiting_for_eof() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (release, wait) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 8192];
+            socket.read(&mut request).await.unwrap();
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"Synthetic answer.\"},\"finish_reason\":\"stop\"}]}\n\n").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            socket.write_all(b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1200,\"completion_tokens\":30}}\n\n").await.unwrap();
+            let _ = wait.await;
+        });
+        let client = ModelClient::new(format!("http://{address}/v1"), "fixture", None, false, "none");
+        let (events, _receiver) = unbounded_channel();
+        let result = timeout(Duration::from_secs(3),client.chat_stream(&[],json!([]),&events)).await;
+        let _ = release.send(());
+        let reply = result.unwrap().unwrap();
+        assert_eq!(reply.input_tokens, Some(1200));
+        assert_eq!(reply.output_tokens, Some(30));
+        assert_eq!(reply.text, "Synthetic answer.");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn progress_dialogue_commits_only_after_generation_finishes() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (release, wait_for_release) = tokio::sync::oneshot::channel();
@@ -1759,18 +1908,59 @@ mod tests {
                 id: "search".into(), name: "web_search".into(), arguments: json!({"query":"quantum computing"}),
             }], &events).await
         });
-        let first_text = timeout(Duration::from_secs(5), async {
-            while let Some(event) = receiver.recv().await {
-                if event["type"] == "text_delta" { return event; }
-            }
-            panic!("no progress dialogue was streamed");
-        }).await.unwrap();
-        assert_eq!(first_text["accumulated_text"], "I will search");
-        assert!(!generation.is_finished(), "dialogue must arrive before response completion");
+        assert!(timeout(Duration::from_millis(100), receiver.recv()).await.is_err(), "An unfinished progress request must not leak partial dialogue");
+        assert!(!generation.is_finished());
         release.send(()).unwrap();
         let dialog = timeout(Duration::from_secs(5), generation).await.unwrap().unwrap().unwrap();
         assert_eq!(dialog, "I will search several sources.");
+        let event = receiver.recv().await.unwrap();
+        assert_eq!(event["text"], dialog);
+        assert_eq!(event["accumulated_text"], dialog);
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_progress_dialogue_does_not_leave_a_partial_letter() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready, wait_ready) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 8192];
+            socket.read(&mut request).await.unwrap();
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"I\"}}]}\n\n").await.unwrap();
+            ready.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        let client = ModelClient::new(format!("http://{address}/v1"), "fixture", None, false, "none");
+        let (events, mut receiver) = unbounded_channel();
+        let generation = tokio::spawn(async move { client.generate_progress_dialog(&[], &[], &events).await });
+        timeout(Duration::from_secs(5), wait_ready).await.unwrap().unwrap();
+        assert!(timeout(Duration::from_millis(100), receiver.recv()).await.is_err());
+        generation.abort();
+        assert!(generation.await.unwrap_err().is_cancelled());
+        assert!(receiver.try_recv().is_err());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn incomplete_progress_replies_do_not_publish_dialogue() {
+        for (body, finish) in [("I", "stop"), ("I will check the", "length")] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let response = json!({"choices":[{"message":{"content":body},"finish_reason":finish}]}).to_string();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0u8; 8192];
+                socket.read(&mut request).await.unwrap();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).as_bytes()).await.unwrap();
+            });
+            let client = ModelClient::new(format!("http://{address}/v1"), "fixture", None, false, "none");
+            let (events, mut receiver) = unbounded_channel();
+            assert_eq!(client.generate_progress_dialog(&[], &[], &events).await.unwrap(), "");
+            assert!(receiver.try_recv().is_err());
+            server.await.unwrap();
+        }
     }
 
     #[tokio::test]
@@ -1952,8 +2142,20 @@ mod tests {
     }
 
     #[test]
+    fn structured_completion_reasons_preserve_output_limit_signals() {
+        for reason in ["length", "max_tokens", "max_output_tokens"] {
+            let reply=ModelClient::parse_message(&json!({"choices":[{"message":{"content":"Partial implementation"},"finish_reason":reason}]}));
+            assert!(reply.output_limit_reached());
+            assert_eq!(reply.finish_reason.as_deref(),Some(reason));
+        }
+        let reply=ModelClient::parse_message(&json!({"choices":[{"message":{"content":"Complete."},"finish_reason":"stop"}]}));
+        assert!(!reply.output_limit_reached());
+    }
+
+    #[test]
     fn nested_xml_tool_markup_is_hidden_and_parsed() {
         let reply = ModelClient::normalize_tool_markup(ModelReply {
+            input_tokens: None, output_tokens: None, phase: None, finish_reason: None,
             text: "Checking now.\n<tool_call><function=read_file><parameter=path>src/main.rs</parameter></function></tool_call>".into(),
             tool_calls: Vec::new(),
         });
@@ -1966,6 +2168,7 @@ mod tests {
     #[test]
     fn malformed_xml_noise_is_hidden_without_overriding_native_calls() {
         let reply = ModelClient::normalize_tool_markup(ModelReply {
+            input_tokens: None, output_tokens: None, phase: None, finish_reason: None,
             text: "Working.\n<tool_call><function=read_file><parameter=path></parameter></function></tool_call>".into(),
             tool_calls: vec![ModelToolCall {
                 id: "native-1".into(),
@@ -1993,6 +2196,7 @@ mod tests {
     #[test]
     fn tool_and_args_json_dialect_is_hidden_and_parsed() {
         let reply = ModelClient::normalize_tool_markup(ModelReply {
+            input_tokens: None, output_tokens: None, phase: None, finish_reason: None,
             text: "Checking files.\n<tool_call>\n{\"tool\":\"list_files\",\"args\":{\"path\":\"$workspace\"}}\n</tool_call>".into(),
             tool_calls: Vec::new(),
         });
@@ -2005,6 +2209,7 @@ mod tests {
     #[test]
     fn malformed_protocol_payload_is_never_visible_text() {
         let reply = ModelClient::normalize_tool_markup(ModelReply {
+            input_tokens: None, output_tokens: None, phase: None, finish_reason: None,
             text: "Checking files.\n<tool_call>{not valid json}</tool_call>".into(),
             tool_calls: Vec::new(),
         });
@@ -2048,6 +2253,29 @@ mod native_reasoning_tests{
             let client=ModelClient::new(format!("http://{address}/v1"),"fixture",None,true,effort);
             tokio::time::timeout(Duration::from_secs(5),client.send_payload_with_retry(&json!({"model":"fixture","messages":[{"role":"system","content":"Synthetic fixed instructions"}]}),None,"fixture")).await.unwrap().unwrap();
         }
+        server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn rejected_toggle_uses_provider_default_and_publishes_actual_efforts(){
+        let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
+        let server=tokio::spawn(async move{
+            let(mut socket,_)=listener.accept().await.unwrap();let(line,_)=read_request(&mut socket).await;assert!(line.starts_with("GET /props "));respond(&mut socket,"404 Not Found",json!({})).await;
+            for step in 0..3{
+                let(mut socket,_)=listener.accept().await.unwrap();let(_,body)=read_request(&mut socket).await;
+                assert_eq!(body["messages"][0]["content"],"Synthetic instructions");
+                if step==0{
+                    assert_eq!(body["reasoning_effort"],"on");
+                    respond(&mut socket,"400 Bad Request",json!({"error":{"message":"Invalid 'reasoning_effort' value: 'on'. Supported values: none, minimal, low, medium, high, xhigh."}})).await;
+                }else{
+                    assert!(body.get("reasoning_effort").is_none());
+                    respond(&mut socket,"200 OK",json!({"ok":true})).await;
+                }
+            }
+        });
+        let client=ModelClient::new(format!("http://{address}/v1"),"fixture",None,true,"on");
+        let(events,mut observed)=tokio::sync::mpsc::unbounded_channel();
+        for _ in 0..2{tokio::time::timeout(Duration::from_secs(5),client.send_payload_with_retry(&json!({"model":"fixture","messages":[{"role":"system","content":"Synthetic instructions"}]}),Some(&events),"fixture")).await.unwrap().unwrap();}
+        assert!(std::iter::from_fn(||observed.try_recv().ok()).any(|event|event["type"]=="reasoning_capabilities"&&event["selected"]=="default"&&event["efforts"].as_array().unwrap().iter().any(|value|value=="xhigh")));
         server.await.unwrap();
     }
     #[tokio::test]

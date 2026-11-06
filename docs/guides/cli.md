@@ -64,3 +64,12 @@ A slow tool request can reflect model reasoning, network latency, or a process s
 Interactive startup checks for a stable release and offers Update or Continue before opening chat. Enter keeps the current version. See [releases](../development/releases.md) for installation behavior and offline controls. Run `jynx-cli --version` to inspect the installed version.
 
 Installed setup bundles support `jynx-cli chat --gguf /path/to/model.gguf` without a separate llama-server path. The installed runtime defaults to CPU; `--runtime NAME` selects another bundled backend. Source-only and custom runtime setups can still use `--llama-server`.
+
+
+## Conversation history
+
+Jynx saves conversations locally in `~/.jynx/history`. Use `/history` to open the searchable conversation picker. The picker can also show archived chats. `/clear` starts a new conversation without deleting earlier ones.
+
+Jynx clients using the same history directory share conversation titles, messages, archive status, and deletions. Nothing is uploaded for history synchronization. `JYNX_HOME` changes the base Jynx folder; `JYNX_HISTORY_DIR` can override just the history location. Set the same value in each client when using an override.
+
+Older history is imported once when its original client or workspace next opens. The original files remain intact. Removing a chat after import does not cause it to reappear from those files.

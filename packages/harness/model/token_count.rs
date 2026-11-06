@@ -4,7 +4,7 @@ impl ModelClient {
 
 
     pub async fn count_input_tokens(&self, messages: &[ChatMessage], tools: &Value) -> Option<usize> {
-        if !self.local_compat { return None; }
+        if !self.local_compat || self.tokenizer_routes_missing.load(Ordering::Relaxed) { return None; }
         let normalized = self.request_messages(messages).ok()?;
         let mut payload = self.payload_with_reasoning(json!({
             "model": self.model, "messages": normalized, "tools": tools,
@@ -29,13 +29,19 @@ impl ModelClient {
 
         if messages.iter().any(|message| !message.images.is_empty()) { return None; }
         let response = self.token_count_request(&format!("{root}/apply-template"), &payload).await?;
-        if !response.status().is_success() { return None; }
+        if !response.status().is_success() {
+            if matches!(response.status().as_u16(),404 | 405 | 501) { self.tokenizer_routes_missing.store(true, Ordering::Relaxed); }
+            return None;
+        }
         let template = response.json::<Value>().await.ok()?;
         let prompt = template["prompt"].as_str()?;
         let response = self.token_count_request(&format!("{root}/tokenize"), &json!({
             "content": prompt, "add_special": false, "parse_special": true, "with_pieces": false,
         })).await?;
-        if !response.status().is_success() { return None; }
+        if !response.status().is_success() {
+            if matches!(response.status().as_u16(),404 | 405 | 501) { self.tokenizer_routes_missing.store(true, Ordering::Relaxed); }
+            return None;
+        }
         let value = response.json::<Value>().await.ok()?;
         Some(value["tokens"].as_array()?.len())
     }
@@ -80,7 +86,7 @@ mod tests {
         socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
     }
     fn messages() -> Vec<ChatMessage> {
-        vec![ChatMessage {role:"user".into(),content:"Synthetic test".into(),images:vec![],tool_calls:None,tool_call_id:None,name:None}]
+        vec![ChatMessage {phase: None, role:"user".into(),content:"Synthetic test".into(),images:vec![],tool_calls:None,tool_call_id:None,name:None}]
     }
 
     #[tokio::test]

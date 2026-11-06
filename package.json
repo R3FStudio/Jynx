@@ -82,7 +82,20 @@
     "package:installers:exclude-desktop": "node scripts/pack-all.ts --installers-only --exclude-desktop",
     "pack:bundle:exclude-desktop": "node scripts/pack-all.ts --bundle-only --exclude-desktop",
     "publish:sdk:github": "node scripts/publish-sdk-github.mjs",
-    "privacy:sync": "node scripts/privacy-assets.mjs"
+    "privacy:sync": "node scripts/privacy-assets.mjs",
+    "start:extension": "node scripts/start-extension.mjs",
+    "start:extenion": "npm run start:extension",
+    "build:extension": "node scripts/extension.mjs build",
+    "check:extension": "node scripts/extension.mjs check",
+    "test:extension": "node scripts/extension.mjs test",
+    "package:extension": "node scripts/extension.mjs package",
+    "pack:extension": "node scripts/extension.mjs package",
+    "clean:extension": "node scripts/extension.mjs clean",
+    "publish:extension": "node scripts/extension.mjs publish",
+    "test:extension:ui": "node scripts/extension.mjs ui",
+    "test:extension:integration": "node scripts/extension.mjs integration",
+    "test:extension:packaged": "node scripts/extension.mjs packaged",
+    "extension:clone": "node scripts/repositories.mjs clone code"
   },
   "devDependencies": {
     "tar": "7.5.22"
