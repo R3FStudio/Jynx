@@ -1,0 +1,240 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Harness: build (debug)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--manifest-path", "packages/harness/Cargo.toml", "-p", "jynx-server", "--bin", "jynx-harness"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Harness: check",
+      "type": "process",
+      "command": "cargo",
+      "args": ["check", "--manifest-path", "packages/harness/Cargo.toml", "--workspace", "--all-targets"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": "build"
+    },
+    {
+      "label": "Harness: test",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "--manifest-path", "packages/harness/Cargo.toml", "--workspace"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Harness: clippy",
+      "type": "process",
+      "command": "cargo",
+      "args": ["clippy", "--manifest-path", "packages/harness/Cargo.toml", "--workspace", "--all-targets"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Harness: format check",
+      "type": "process",
+      "command": "cargo",
+      "args": ["fmt", "--manifest-path", "packages/harness/Cargo.toml", "--all", "--", "--check"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "CLI: build (debug)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--manifest-path", "packages/cli/Cargo.toml", "--bin", "jynx-cli"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": "build"
+    },
+    {
+      "label": "CLI: test",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "--manifest-path", "packages/cli/Cargo.toml"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": "test"
+    },
+    {
+      "label": "CLI: clippy",
+      "type": "process",
+      "command": "cargo",
+      "args": ["clippy", "--manifest-path", "packages/cli/Cargo.toml", "--all-targets"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Workspace: doctor",
+      "type": "npm",
+      "script": "doctor",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Workspace: build all (release)",
+      "type": "npm",
+      "script": "build:all",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Harness: build (release)",
+      "type": "npm",
+      "script": "build:harness",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "CLI: build (release)",
+      "type": "npm",
+      "script": "build:cli",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Scripts: test",
+      "type": "npm",
+      "script": "test:scripts",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "SDKs: test",
+      "type": "npm",
+      "script": "sdk:test",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "JavaScript: lint",
+      "type": "npm",
+      "script": "lint",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "JavaScript: format check",
+      "type": "npm",
+      "script": "format:check",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    }
+  ]
+}

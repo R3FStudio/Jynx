@@ -1,0 +1,49 @@
+{
+  "claudeCode.disableLoginPrompt": true,
+  "editor.formatOnSave": true,
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "rust-analyzer.linkedProjects": ["packages/harness/Cargo.toml", "packages/cli/Cargo.toml"],
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.cargo.allTargets": true,
+  "rust-analyzer.checkOnSave": true,
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.tabSize": 4
+  },
+  "[javascript][javascriptreact][typescript][typescriptreact][json][jsonc][markdown][yaml]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[python]": {
+    "editor.tabSize": 4
+  },
+  "prettier.prettierPath": "tools/tooling/node_modules/prettier",
+  "eslint.workingDirectories": [
+    {
+      "directory": "tools/tooling",
+      "changeProcessCWD": true
+    }
+  ],
+  "eslint.options": {
+    "overrideConfigFile": "eslint.config.mjs"
+  },
+  "search.exclude": {
+    "**/target": true,
+    "**/node_modules": true,
+    "**/build": true,
+    "**/dist": true,
+    "vendor/llama.cpp": true,
+    ".cache": true
+  },
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/node_modules/**": true,
+    "**/build/**": true,
+    "**/dist/**": true,
+    "**/.cache/**": true,
+    "**/vendor/llama.cpp/**": true
+  },
+  "debug.onTaskErrors": "showErrors"
+}

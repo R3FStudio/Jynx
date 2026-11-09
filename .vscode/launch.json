@@ -1,0 +1,56 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Harness: debug stdio server",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--manifest-path", "packages/harness/Cargo.toml", "--bin", "jynx-harness"],
+        "filter": {
+          "name": "jynx-harness",
+          "kind": "bin"
+        }
+      },
+      "args": ["serve"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_BACKTRACE": "1",
+        "JYNX_STATE_DIR": "${workspaceFolder}/.cache/debug/harness"
+      },
+      "terminal": "integrated",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "name": "CLI: debug interactive terminal",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--manifest-path", "packages/cli/Cargo.toml", "--bin", "jynx-cli"],
+        "filter": {
+          "name": "jynx-cli",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_BACKTRACE": "1",
+        "JYNX_STATE_DIR": "${workspaceFolder}/.cache/debug/cli"
+      },
+      "terminal": "integrated",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "name": "Scripts: debug build orchestrator",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "build:all"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}
