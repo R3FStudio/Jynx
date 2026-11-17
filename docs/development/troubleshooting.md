@@ -2,7 +2,11 @@
 
 ## Missing npm package
 
-Check `node --version`, then run `npm ci` at the repository root. Do not copy dependencies from another operating system. `build:all` skips absent source folders; a present package with missing dependencies is a failure.
+Check `node --version`, then run `npm run install:all` at the repository root. Do not copy dependencies from another operating system. `build:all` skips absent source folders; a present package with missing dependencies is a failure.
+
+## Missing TypeScript or esbuild platform binary
+
+Errors such as `Unable to resolve @typescript/typescript-linux-x64` or esbuild finding `win32-x64` on Linux mean the standalone checkout has missing or foreign platform dependencies. Run `npm run install:all` to reinstall the root and all present standalone checkouts with their host binaries, then run `npm run build:all`. Root `npm install` does not install dependencies inside `packages/private/Desktop` or `packages/private/jynx-code`. Keep optional dependencies enabled.
 
 ## Rust or linker errors
 

@@ -1,12 +1,12 @@
 # Building
 
 ```sh
-npm ci
+npm run install:all
 npm run doctor
 npm run build:all
 ```
 
-`npm ci` installs public JavaScript tools from the lockfile. `doctor` validates available source. `build:all` builds available configured components.
+`npm run install:all` cleanly installs public workspace dependencies and each present standalone Desktop/extension checkout from their lockfiles, including development tools and optional platform binaries. Missing standalone checkouts are skipped. Run it again after switching operating systems; copied `node_modules` folders cannot be reused across platforms. `npm ci` alone installs only the public workspace dependencies. `doctor` validates available source. `build:all` builds available configured components.
 
 | Command | Result |
 | --- | --- |

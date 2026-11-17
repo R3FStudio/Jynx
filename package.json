@@ -95,9 +95,13 @@
     "test:extension:ui": "node scripts/extension.mjs ui",
     "test:extension:integration": "node scripts/extension.mjs integration",
     "test:extension:packaged": "node scripts/extension.mjs packaged",
-    "extension:clone": "node scripts/repositories.mjs clone code"
+    "extension:clone": "node scripts/repositories.mjs clone code",
+    "install:all": "node scripts/install-dependencies.mjs"
   },
   "devDependencies": {
     "tar": "7.5.22"
+  },
+  "overrides": {
+    "minimatch@>=7 <11.0.1": "^11.0.1"
   }
 }
