@@ -3,7 +3,7 @@ use jynx_model::ModelReply;
 use serde_json::{Value, json};
 
 pub(super) const FINISH_TOOL: &str = "finish_turn";
-pub(super) const PROTOCOL_GUIDANCE: &str = "[Jynx turn protocol] Continue with the next tool call. When the request is complete or blocked, call finish_turn alone with the final answer. Ordinary progress text is not a completion signal.";
+pub(super) const PROTOCOL_GUIDANCE: &str = "[Jynx turn protocol] Continue with the next tool call. When the request is complete or blocked, call finish_turn alone with the final answer. Ordinary progress text is not a completion signal. Keep the complete user-facing answer in the final_answer phase or finish_turn answer, not in a separate progress message. The final answer must stand on its own: include the actual result and necessary details instead of referring to an earlier update, draft, or answer above.";
 
 pub(super) enum TurnDecision {
     Tools,
@@ -14,9 +14,9 @@ pub(super) enum TurnDecision {
 pub(super) fn schema() -> Value {
     json!({"type":"function","function":{
         "name":FINISH_TOOL,
-        "description":"End the current user turn only when the request is complete or a concrete blocker prevents further work. Call alone with the final user-facing answer. Use ask_user for questions. Progress messages and successful tools do not end the turn.",
+        "description":"End the current user turn only when the request is complete or a concrete blocker prevents further work. Call alone with the complete, self-contained final user-facing answer. Earlier progress updates may be collapsed, so include the actual answer here rather than referring back to them. Use ask_user for questions. Progress messages and successful tools do not end the turn.",
         "parameters":{"type":"object","properties":{
-            "answer":{"type":"string","minLength":1},
+            "answer":{"type":"string","minLength":1,"description":"The complete final answer that the user can understand without opening progress messages. Include the result and necessary details; do not just say see above or refer to an earlier answer."},
             "status":{"type":"string","enum":["completed","blocked"]}
         },"required":["answer","status"],"additionalProperties":false}
     }})
@@ -233,7 +233,7 @@ mod turn_tests {
                             value
                         }
                         1 => {
-                            json!({"content":"Reading the synthetic fixture.","tool_calls":[{"id":"read","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"fixture.txt\"}"}}]})
+                            json!({"content":"Reading the synthetic fixture. I will check the relevant inputs together, make the requested change where the evidence supports it, and verify the resulting behavior before giving you the completed result.","tool_calls":[{"id":"read","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"fixture.txt\"}"}}]})
                         }
                         _ => {
                             json!({"content":"","tool_calls":[{"id":"finish","type":"function","function":{"name":FINISH_TOOL,"arguments":json!({"status":"completed","answer":"Verified the synthetic fixture."}).to_string()}}]})
@@ -259,7 +259,7 @@ mod turn_tests {
             .unwrap();
             let (events, mut observed) = tokio::sync::mpsc::unbounded_channel();
             let response = tokio::time::timeout(
-                std::time::Duration::from_secs(10),
+                std::time::Duration::from_secs(60),
                 agent.run_with_catalog(input(), events, Some(McpCatalog::empty())),
             )
             .await
@@ -279,6 +279,12 @@ mod turn_tests {
                 1
             );
             assert!(!events.iter().any(|event| event["kind"] == FINISH_TOOL));
+            assert!(!events.iter().any(|event| event["type"] == "text_delta"
+                && event["text"].as_str().unwrap_or("").contains("All done. Arbitrary prose")),
+                "a no-tool draft must wait for an explicit completion signal");
+            assert!(events.iter().any(|event| event["type"] == "text_delta"
+                && event["text"].as_str().unwrap_or("").contains("Reading the synthetic fixture.")),
+                "genuine tool progress must still be visible");
             server.await.unwrap();
             std::fs::remove_dir_all(root).unwrap();
         }

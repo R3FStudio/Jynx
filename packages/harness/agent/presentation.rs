@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::time::Instant;
-use jynx_model::{ModelClient, ModelReply, progress_text_is_fragment};
+use jynx_model::{ModelClient, ModelReply};
 use jynx_protocol::ChatMessage;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 #[derive(Default)]
 pub(super) struct StepPresentation {
     enabled: bool,
-    tool_intent: bool,
+    pending_tool_status: Option<Value>,
     pending: String,
     generated: String,
     first_text_at: Option<Instant>,
@@ -25,7 +25,7 @@ impl StepPresentation {
 
     fn consume_at(&mut self, event: Value, events: &UnboundedSender<Value>, now: Instant) {
         if event["type"] == "stream_retry" {
-            self.pending.clear(); self.tool_intent = false;
+            self.pending.clear(); self.pending_tool_status = None;
             self.generated.clear(); self.first_text_at=None; self.last_text_at=None; self.initial_words=0;
         }
         if event["type"] == "text_delta" {
@@ -36,20 +36,13 @@ impl StepPresentation {
                 self.last_text_at=Some(now);
             }
         }
-        if event["type"] == "status" && (event["tool_kind"].is_string()
+        if event["type"] == "text_delta" {
+            self.pending = self.generated.clone();
+        } else if event["type"] == "status" && (event["tool_kind"].is_string()
             || event["label"] == "Preparing tool call") {
-            self.tool_intent = true;
-            self.commentary(events);
-        }
-        if event["type"] == "text_delta" && !self.tool_intent {
-            if let Some(accumulated) = event["accumulated_text"].as_str() {
-                self.pending = accumulated.into();
-            } else if let Some(text) = event["text"].as_str() {
-                self.pending.push_str(text);
-            }
-        } else if event["type"] == "text_delta" && !self.pending.is_empty() {
-            if let Some(text) = event["text"].as_str() { self.pending.push_str(text); }
-            self.commentary(events);
+            // A preview is not execution. Release it only after the agent has
+            // accepted the full progress paragraph and the selected tool batch.
+            self.pending_tool_status = Some(event);
         } else {
             let _ = events.send(self.with_pace(event));
         }
@@ -65,11 +58,20 @@ impl StepPresentation {
         event
     }
 
-    pub(super) fn commentary(&mut self, events: &UnboundedSender<Value>) {
-        if !progress_text_is_fragment(&self.pending) {
-            let text = std::mem::take(&mut self.pending);
+    pub(super) fn replace_commentary(&mut self, text: &str) {
+        self.pending = text.to_owned();
+    }
+
+    pub(super) fn commentary(&mut self, events: &UnboundedSender<Value>, allow_brief: bool) -> String {
+        let text = super::progress::public_update(&std::mem::take(&mut self.pending), allow_brief);
+        if !text.is_empty() {
             let _ = events.send(self.with_pace(json!({"type":"text_delta","text":text,"accumulated_text":text})));
         }
+        text
+    }
+
+    pub(super) fn tool_ready(&mut self, events: &UnboundedSender<Value>) {
+        if let Some(status) = self.pending_tool_status.take() { let _ = events.send(status); }
     }
 
     pub(super) fn final_answer(&mut self, text: &str, events: &UnboundedSender<Value>) {
@@ -129,7 +131,7 @@ mod tests {
         assert!(step.pending.is_empty());
         assert_eq!(received.try_recv().unwrap()["type"], "stream_retry");
         step.consume(json!({"type":"text_delta","text":"replacement"}), &events);
-        step.commentary(&events);
+        step.commentary(&events, true);
         assert_eq!(received.try_recv().unwrap()["text"], "replacement");
         assert!(received.try_recv().is_err());
     }
@@ -139,11 +141,13 @@ mod tests {
         let mut step = StepPresentation { enabled: true, ..Default::default() };
         step.consume(json!({"type":"text_delta","text":"I","accumulated_text":"I"}), &events);
         step.consume(json!({"type":"status","tool_kind":"read_file"}), &events);
-        assert_eq!(received.try_recv().unwrap()["type"], "status");
         assert!(received.try_recv().is_err());
         step.consume(json!({"type":"text_delta","text":" will check the fixture.","accumulated_text":"I will check the fixture."}), &events);
+        assert!(received.try_recv().is_err());
+        step.commentary(&events, true);
         assert_eq!(received.try_recv().unwrap()["text"], "I will check the fixture.");
-        step.commentary(&events);
+        step.tool_ready(&events);
+        assert_eq!(received.try_recv().unwrap()["type"], "status");
         assert!(received.try_recv().is_err());
     }
     #[test]
@@ -152,9 +156,11 @@ mod tests {
         let mut step = StepPresentation { enabled:true, ..Default::default() };
         step.consume(json!({"type":"text_delta","text":"I will inspect the fixture."}), &events);
         step.consume(json!({"type":"status","label":"Preparing read file","tool_kind":"read_file"}), &events);
+        assert!(received.try_recv().is_err());
+        step.commentary(&events, true);
+        step.tool_ready(&events);
         assert_eq!(received.try_recv().unwrap()["type"], "text_delta");
         assert_eq!(received.try_recv().unwrap()["type"], "status");
-        step.commentary(&events);
         assert!(received.try_recv().is_err());
     }
 }
@@ -170,7 +176,7 @@ mod pacing_tests {
         step.consume_at(json!({"type":"reasoning_delta","text":"Synthetic private reasoning"}),&events,start);
         step.consume_at(json!({"type":"text_delta","text":"First ","accumulated_text":"First "}),&events,start+std::time::Duration::from_secs(10));
         step.consume_at(json!({"type":"text_delta","text":"second third fourth fifth", "accumulated_text":"First second third fourth fifth"}),&events,start+std::time::Duration::from_millis(10400));
-        step.commentary(&events);
+        step.commentary(&events, true);
         let commentary=std::iter::from_fn(||received.try_recv().ok()).find(|event|event["type"]=="text_delta").unwrap();
         assert_eq!(commentary["word_interval_ms"],100.0);
         step.final_answer("First second third fourth fifth",&events);

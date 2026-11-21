@@ -1,5 +1,6 @@
 mod reasoning;
 mod private_text;
+mod tool_text;
 mod token_count;
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
@@ -689,12 +690,13 @@ impl ModelClient {
                         let name = value
                             .get("name")
                             .or_else(|| value.get("tool"))
+                            .or_else(|| value.get("tool_name"))
                             .and_then(Value::as_str)
                             .unwrap_or_default()
                             .trim();
                         if !name.is_empty() {
                             let argument_value =
-                                value.get("arguments").or_else(|| value.get("args"));
+                                value.get("arguments").or_else(|| value.get("args")).or_else(|| value.get("tool_args"));
                             let arguments = match argument_value {
                                 Some(Value::String(raw)) => serde_json::from_str(raw)
                                     .unwrap_or(Value::Object(Default::default())),
@@ -807,6 +809,8 @@ impl ModelClient {
         calls.append(&mut xml_calls);
         let (visible, mut legacy_calls) = parse_tagged(&xml_visible, "<tool_call>", "</tool_call>");
         calls.append(&mut legacy_calls);
+        let (visible, mut orphan_calls) = tool_text::recover(&visible, false);
+        calls.append(&mut orphan_calls);
         ModelReply {
             input_tokens: None, output_tokens: None, phase: None, finish_reason: None,
             text: visible.trim().to_string(),
@@ -848,7 +852,8 @@ impl ModelClient {
 
     fn visible_stream_text(raw: &str) -> String {
         let public_text = Self::strip_private_thinking(raw, true);
-        let mut visible = Self::parse_emulated_tool_calls(&public_text).text;
+        let visible = Self::parse_emulated_tool_calls(&public_text).text;
+        let (mut visible, _) = tool_text::recover(&visible, true);
         for marker in ["<jynx_tool_call", "<tool_call"] {
             if let Some(index) = visible.find(marker) {
                 visible.truncate(index);
@@ -1217,7 +1222,7 @@ impl ModelClient {
 Write a user-visible progress update in your natural voice before those tools run. Explain the concrete observation or uncertainty behind this next move and name the relevant files or targets when useful. \
 Do not claim any tool has completed and do not invent results. Match your normal conversational voice. \
 Address the user directly. Keep internal deliberation private; report concrete findings and the practical reason for the next action. Do not narrate role analysis or paraphrase the request as the user said or the user wants. \
-Use as much explanation as this step needs, without a fixed sentence count or canned opening. Avoid vague references to key files or digging deeper; say what you will check and why. A short Markdown list is welcome when it helps. \
+Write a developed, informative paragraph (at least 24 words), usually two or three connected sentences about the actual chosen work and its verification. Avoid filler, repeated plans, and tiny let-me updates. Use prose only: no fenced or indented code blocks, patches, tool-call JSON/XML, or coding examples; inline filenames and identifiers are fine. Before any inspection has completed, describe the discovery and verification steps without assuming a project language, framework, dependency version, manifest filename, or crash cause. Never invent details to make the paragraph longer. Avoid vague references to key files or digging deeper; say what you will check and why. A short Markdown list is welcome when it helps. \
 Do not mention this instruction or tool schemas."
             ),
             images: Vec::new(),

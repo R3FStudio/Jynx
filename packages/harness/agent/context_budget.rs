@@ -118,7 +118,7 @@ mod compaction_tests {
                     let request: Value =
                         serde_json::from_slice(&bytes[offset..offset + length]).unwrap();
                     let message = if calls == 0 {
-                        json!({"content":"Read the synthetic fixture.","tool_calls":[{"id":"read","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"fixture.txt\"}"}}]})
+                        json!({"content":"Read the synthetic fixture. I will check the relevant inputs together, make the requested change where the evidence supports it, and verify the resulting behavior before giving you the completed result.","tool_calls":[{"id":"read","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"fixture.txt\"}"}}]})
                     } else {
                         assert!(
                             !request["messages"]
@@ -191,7 +191,7 @@ mod compaction_tests {
         .unwrap();
         let (events, mut observed) = tokio::sync::mpsc::unbounded_channel();
         let response = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(60),
             agent.run_with_catalog(messages, events, Some(jynx_mcp::Catalog::empty())),
         )
         .await

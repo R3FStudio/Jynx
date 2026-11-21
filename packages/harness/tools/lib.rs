@@ -242,7 +242,7 @@ pub fn schemas(
             "type": "function",
             "function": {
                 "name": "run_command",
-                "description": "Run a normal Harness shell command. Use for commands, builds, tests, package managers, and shell-native operations; never use it merely to read a file or search the web. This does not open the app's side-panel terminal.",
+                "description": "Run a normal Harness shell command. Use for commands, builds, tests, type checks, linters, package managers, and temporary Python/Node/shell verification scripts (including multiline host-shell commands); never use it merely to read a file or search the web. This does not open the app's side-panel terminal.",
                 "parameters": {
                     "type": "object",
                     "properties": {
