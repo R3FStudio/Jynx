@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { workspaceRoot } from './workspace-paths.ts';
 import { extractRuntimeTar } from './extract-runtime-tar.ts';
+import { extractRuntimeZip } from './extract-runtime-zip.ts';
 
 import { selectLlamaTargets, type LlamaPlatform as Platform, type LlamaTarget as Target } from './llama-runtime-targets.ts';
 type Asset = { name: string; browser_download_url: string; size?: number };
@@ -193,13 +194,7 @@ async function extract(archive: string, target: string) {
   await mkdir(target, { recursive: true });
   const lower = archive.toLowerCase();
   if (lower.endsWith('.zip')) {
-    if (process.platform === 'win32') {
-      const escapedArchive = archive.replaceAll("'", "''");
-      const escapedTarget = target.replaceAll("'", "''");
-      await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${escapedArchive}' -DestinationPath '${escapedTarget}' -Force`]);
-    } else {
-      await run('unzip', ['-o', archive, '-d', target]);
-    }
+    await extractRuntimeZip(archive, target);
     return;
   }
   await extractRuntimeTar(archive, target);
