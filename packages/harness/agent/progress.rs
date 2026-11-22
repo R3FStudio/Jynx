@@ -1,4 +1,4 @@
-/// Extra opening narration is optional presentation, not a tool prerequisite.
+
 pub(super) async fn optional_opening(
     request: impl std::future::Future<Output = anyhow::Result<String>>,
 ) -> Option<String> {
@@ -8,8 +8,8 @@ pub(super) async fn optional_opening(
         .filter(|text| !text.is_empty())
 }
 
-/// Progress is prose about the work. Code belongs in tool arguments/diffs or
-/// the final answer, never in the intermediate public dialogue.
+
+
 pub(super) fn public_update(text: &str, allow_brief: bool) -> String {
     let mut fence: Option<(char, usize)> = None;
     let mut prose = Vec::new();
@@ -30,8 +30,8 @@ pub(super) fn public_update(text: &str, allow_brief: bool) -> String {
     }
     let text = prose.join("\n").trim().to_owned();
     if jynx_model::progress_text_is_fragment(&text) { return String::new(); }
-    // Keep questions/blockers readable even when brief. Routine narration must
-    // contain a useful paragraph rather than a succession of one-line plans.
+
+
     if allow_brief || text.split_whitespace().count() >= 24
         || (!text.contains(char::is_whitespace) && text.chars().count() >= 80) { text }
     else { String::new() }

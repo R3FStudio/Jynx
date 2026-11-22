@@ -40,8 +40,8 @@ impl StepPresentation {
             self.pending = self.generated.clone();
         } else if event["type"] == "status" && (event["tool_kind"].is_string()
             || event["label"] == "Preparing tool call") {
-            // A preview is not execution. Release it only after the agent has
-            // accepted the full progress paragraph and the selected tool batch.
+
+
             self.pending_tool_status = Some(event);
         } else {
             let _ = events.send(self.with_pace(event));

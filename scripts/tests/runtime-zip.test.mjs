@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { extractRuntimeZip, runtimeZipCommand } from '../extract-runtime-zip.ts';
 
-// Small ZIP containing a nested synthetic server and its companion DLL.
+
 const fixture = Buffer.from('UEsDBBQAAAAIAASOdV2DmP1AEwAAABEAAAAYAAAAcnVudGltZS9sbGFtYS1zZXJ2ZXIuZXhlK67MK8lILclMVihOLSpLLeICAFBLAwQUAAAACAAEjnVdW3k7WRQAAAASAAAAEAAAAHJ1bnRpbWUvZ2dtbC5kbGwrrswryUgtyUxWyMlMKkosquQCAFBLAQIUAxQAAAAIAASOdV2DmP1AEwAAABEAAAAYAAAAAAAAAAAAAACAAQAAAABydW50aW1lL2xsYW1hLXNlcnZlci5leGVQSwECFAMUAAAACAAEjnVdW3k7WRQAAAASAAAAEAAAAAAAAAAAAAAAgAFJAAAAcnVudGltZS9nZ21sLmRsbFBLBQYAAAAAAgACAIQAAACLAAAAAAA=', 'base64');
 
 test('Windows ZIP extraction bypasses the archive module and stops on .NET errors', () => {

@@ -4,10 +4,10 @@ import { mkdir } from 'node:fs/promises';
 export function runtimeZipCommand(archive: string, destination: string, platform: NodeJS.Platform = process.platform) {
   if (platform !== 'win32') return { command: 'unzip', args: ['-o', archive, '-d', destination] };
   const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
-  // Windows PowerShell can inherit a PowerShell 7 PSModulePath from the runner.
-  // Bypass Microsoft.PowerShell.Archive and its incompatible overwrite overload.
-  // The caller stages each archive into a fresh directory, so no overwrite API
-  // is needed. This two-argument overload works with .NET Framework as well.
+
+
+
+
   const script = "$ErrorActionPreference = 'Stop'; "
     + 'Add-Type -AssemblyName System.IO.Compression.FileSystem; '
     + `[System.IO.Compression.ZipFile]::ExtractToDirectory(${literal(archive)}, ${literal(destination)})`;

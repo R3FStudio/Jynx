@@ -1,5 +1,6 @@
 mod app;
 mod installed_runtime;
+mod vision;
 mod terminal_ui;
 mod updater;
 

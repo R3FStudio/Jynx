@@ -30,7 +30,7 @@ pub struct ChatMessage {
     pub phase: Option<String>,
     pub role: String,
     pub content: String,
-    #[serde(default, skip_serializing)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Value>,
@@ -212,4 +212,17 @@ pub struct AgentResponse {
     pub context_estimated: bool,
     #[serde(default)]
     pub context_limit: usize,
+}
+
+#[cfg(test)]
+mod vision_tests {
+    #[test]
+    fn image_references_survive_host_context_roundtrips() {
+        let input = serde_json::json!({"role":"user","content":"Inspect this","images":["/synthetic/pixel.png"]});
+        let message: super::ChatMessage = serde_json::from_value(input.clone()).unwrap();
+        let checkpoint = serde_json::to_value(&message).unwrap();
+        assert_eq!(checkpoint["images"], input["images"]);
+        let restored: super::ChatMessage = serde_json::from_value(checkpoint).unwrap();
+        assert_eq!(restored.images, message.images);
+    }
 }

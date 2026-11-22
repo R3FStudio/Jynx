@@ -41,7 +41,7 @@ function runInstall(directory, { standalone }) {
 }
 
 export async function installDependencies({ root = workspaceRoot, install = runInstall, log = console.log } = {}) {
-  // Inspect before installing so malformed component metadata cannot trigger partial installation.
+
   const { components } = await inspectComponents(root);
   const invalid = components.filter((component) => component.status === 'invalid');
   if (invalid.length) throw new Error(invalid.map((component) => `${component.id}: ${component.reason}`).join('\n'));

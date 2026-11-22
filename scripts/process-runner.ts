@@ -29,8 +29,8 @@ export function run(command, args = [], options = {}) {
   });
 }
 
-// NTFS mounts can mask executable bits. Keep native tools and their companion
-// files in a private local cache instead of changing permissions on the drive.
+
+
 export async function executablePath(source, bundleDirectory = path.dirname(source)) {
   if (process.platform !== 'linux') return source;
   try { await access(source, constants.X_OK); return source; } catch (error) {
@@ -48,7 +48,7 @@ export async function executablePath(source, bundleDirectory = path.dirname(sour
   try {
     await cp(bundleDirectory, bundleDirectory === source ? path.join(temporary, relative) : temporary, { recursive: true });
     await chmod(path.join(temporary, relative), 0o755);
-    // Electron starts this helper itself.
+
     if (path.basename(source) === 'electron') await chmod(path.join(temporary, 'chrome_crashpad_handler'), 0o755);
     try { await rename(temporary, destination); } catch (error) {
       if (!['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw error;

@@ -1,4 +1,4 @@
-"""Dependency-free client for Jynx's optional local model endpoint."""
+
 
 import json
 from urllib.error import HTTPError
@@ -78,7 +78,7 @@ class JynxClient:
         return self._json(self._request("/chat/completions", {"model": model, "messages": messages, **options, "stream": False}))
 
     def stream_chat_completion(self, *, model: str, messages: list[dict], **options):
-        """Yield decoded OpenAI-compatible SSE chunks until [DONE]."""
+
         response = self._request("/chat/completions", {"model": model, "messages": messages, **options, "stream": True}, stream=True)
         with response:
             data_lines = []

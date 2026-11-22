@@ -42,6 +42,8 @@ struct ChatOptions {
     settings: AgentSettings,
     #[serde(skip)]
     prompt: Option<String>,
+    #[serde(skip)]
+    images: Vec<String>,
     llama_binary: Option<String>,
     runtime_name: Option<String>,
     gguf: Option<String>,
@@ -201,6 +203,7 @@ fn print_help() {
     );
     println!("  --cwd <path>            Workspace exposed to file/code tools");
     println!("  --context <tokens>      Context budget (default: 32768)");
+    println!("  --image <path>       Attach an image to the first prompt (repeatable)");
     println!("  --llama-server <path>  Launch this llama.cpp bundle's server executable");
     println!(
         "  --gguf <path>          Load a GGUF with the installed or explicitly selected llama.cpp runtime"
@@ -267,6 +270,7 @@ fn parse_chat_options_from(args: &[String], saved: ChatOptions) -> Result<ChatOp
         llama_binary = None;
         local_compat = api_key.is_none();
     }
+    let mut images = Vec::new();
     let mut prompt_parts = Vec::new();
     let mut index = 0usize;
     while index < args.len() {
@@ -294,6 +298,7 @@ fn parse_chat_options_from(args: &[String], saved: ChatOptions) -> Result<ChatOp
                 api_key = Some(take_value(&mut index, "--api-key")?);
                 local_compat = false;
             }
+            "--image" => images.push(take_value(&mut index, "--image")?),
             "--cwd" => cwd = take_value(&mut index, "--cwd")?,
             "--context" => {
                 context_size = take_value(&mut index, "--context")?
@@ -405,6 +410,7 @@ fn parse_chat_options_from(args: &[String], saved: ChatOptions) -> Result<ChatOp
         local_compat,
         settings,
         prompt,
+        images,
         llama_binary,
         runtime_name,
         gguf,
@@ -444,7 +450,9 @@ async fn chat_command(args: &[String]) -> Result<()> {
     if let Some(prompt) = options.prompt.clone() {
         ensure_cli_runtime(&mut options, &mut cli_runtime).await?;
         publish_discovery(&discovery, &options, &cli_runtime);
-        history.push(user_message(prompt.clone()));
+        let mut message = user_message(prompt.clone());
+        message.images = options.images.clone();
+        history.push(message);
         let response = run_chat_turn(&options, history.clone()).await?;
         let context = response.context.clone().unwrap_or_else(|| {
             let mut value = history.clone();
@@ -566,7 +574,9 @@ async fn chat_command(args: &[String]) -> Result<()> {
             }
             continue;
         }
-        history.push(user_message(prompt.to_string()));
+        let mut message = user_message(prompt.to_string());
+        message.images = std::mem::take(&mut options.images);
+        history.push(message);
         println!("\nJynx ›");
         if let Err(error) = ensure_cli_runtime(&mut options, &mut cli_runtime).await {
             eprintln!("\nruntime error: {error}\n");
@@ -734,8 +744,9 @@ async fn ensure_cli_runtime(
     } else {
         &options.gpu_layers
     };
+    let projector = crate::vision::projector(&gguf, &options.llama_extra)?;
     let key = format!(
-        "{}|{}|{}|{}|{}|{:?}",
+        "{}|{}|{}|{}|{}|{:?}|{projector:?}",
         binary.display(),
         gguf.display(),
         options.context_size,
@@ -779,6 +790,7 @@ async fn ensure_cli_runtime(
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    if let Some(ref projector) = projector { command.arg("--mmproj").arg(projector); }
     #[cfg(windows)]
     {
         command.creation_flags(0x08000000);
@@ -845,6 +857,16 @@ async fn ensure_cli_runtime(
             return Err(anyhow!("llama.cpp did not become ready within 180 seconds"));
         }
         sleep(Duration::from_millis(350)).await;
+    }
+    if projector.is_some() {
+        if let Ok(response) = client.get(format!("http://127.0.0.1:{port}/props")).timeout(Duration::from_secs(3)).send().await {
+            if let Ok(props) = response.json::<serde_json::Value>().await {
+                if props["modalities"]["vision"].as_bool() == Some(false) {
+                    child.start_kill()?;
+                    return Err(anyhow!("The runtime reports image input is unavailable. Update llama.cpp or choose the matching vision projector."));
+                }
+            }
+        }
     }
     println!("✓ Local model ready at {endpoint}");
     options.endpoint = endpoint;
@@ -1224,4 +1246,12 @@ mod cli_options_tests {
             .is_err()
         );
     }
+    #[test]
+    fn vision_attachments_are_repeatable_and_not_saved_to_preferences() {
+        let options=parse_chat_options_from(&args(&["--image","first.png","--image","second.jpg","Inspect these"]),ChatOptions::default()).unwrap();
+        assert_eq!(options.images,vec!["first.png","second.jpg"]);
+        assert_eq!(options.prompt.as_deref(),Some("Inspect these"));
+        assert!(serde_json::to_value(&options).unwrap().get("images").is_none());
+    }
+
 }

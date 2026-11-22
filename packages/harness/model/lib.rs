@@ -619,6 +619,7 @@ impl ModelClient {
                 let images = message.images.clone();
                 let assistant = message.role == "assistant";
                 let mut value = serde_json::to_value(message).unwrap_or(Value::Null);
+                value.as_object_mut().unwrap().remove("images");
                 if !assistant { value.as_object_mut().unwrap().remove("phase"); }
                 if images.is_empty() {
                     return Ok(value);
@@ -2335,5 +2336,21 @@ mod private_channel_tests{
             if event["type"]=="reasoning_delta"{saw_private_activity=true;}
         }
         assert!(saw_private_activity);server.await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod vision_transport_tests {
+    use super::*;
+    #[test]
+    fn checkpoint_images_become_native_image_parts_without_internal_fields() {
+        let original: ChatMessage = serde_json::from_value(json!({"role":"user","content":"Inspect","images":["data:image/png;base64,aGVsbG8="]})).unwrap();
+        let restored: ChatMessage = serde_json::from_value(serde_json::to_value(original).unwrap()).unwrap();
+        for local in [true, false] {
+            let client = ModelClient::new("http://localhost:1", "fixture", None, local, "default");
+            let wire = client.request_messages(&[restored.clone()]).unwrap();
+            assert_eq!(wire[0]["content"][1]["image_url"]["url"], "data:image/png;base64,aGVsbG8=");
+            assert!(wire[0].get("images").is_none());
+        }
     }
 }

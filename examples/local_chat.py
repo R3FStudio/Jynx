@@ -1,4 +1,4 @@
-"""Run a prompt through the loaded local model: python examples/local_chat.py Hello."""
+
 
 import sys
 from pathlib import Path

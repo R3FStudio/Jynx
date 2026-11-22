@@ -1042,9 +1042,9 @@ impl Agent {
             )
             .await
         };
-        // Keep quick file work visible for the requested presentation interval.
-        // Commands and already-slow operations acquire no extra delay; cancelled
-        // requests drop this future, including the pending timer.
+
+
+
         if self.settings.final_answer_presentation && output_result.is_ok()
             && matches!(call.name.as_str(), "read_file" | "read_skill_file" | "edit_file" | "write_file") {
             tokio::time::sleep_until(visible_since + FILE_ACTIVITY_MINIMUM).await;
@@ -1704,7 +1704,7 @@ impl Agent {
                     return Err(anyhow!("The model repeatedly reached its response token limit before completing the task. Completed tool work is preserved. Increase Maximum response tokens or choose model default, then continue."));
                 }
                 output_limit_retries += 1;
-                // An incomplete model response is not a public progress update.
+
                 if !reply.text.trim().is_empty() {
                     messages.push(ChatMessage { phase: None, role:"assistant".into(), content:reply.text.clone(), images:vec![], tool_calls:None, tool_call_id:None, name:None });
                 }
@@ -1728,10 +1728,10 @@ impl Agent {
                         return Err(anyhow!("The model did not supply a final-answer phase or finish_turn completion signal. The turn remains incomplete; completed operations are preserved."));
                     }
                     completion_protocol_retries += 1;
-                    // Text without a tool batch is still an unaccepted draft. Publishing
-                    // it here leaks a possible answer into progress before finish_turn.
-                    // Keep it in model context, but wait for an explicit final event to
-                    // present the answer; real tool batches release their own commentary.
+
+
+
+
                     if !reply.text.trim().is_empty() {
                         messages.push(ChatMessage { phase: reply.phase.clone(), role:"assistant".into(), content:reply.text.clone(), images:vec![], tool_calls:None, tool_call_id:None, name:None });
                     }
@@ -1751,7 +1751,7 @@ impl Agent {
                         presentation.replace_commentary(&reply.text);
                         let mut public = presentation.commentary(&events, allow_brief);
                         if !has_public_update && public.is_empty() {
-                            // A valid shorter opening is still genuine model prose.
+
                             presentation.replace_commentary(&reply.text);
                             public = presentation.commentary(&events, true);
                             if public.is_empty() && !opening_update_attempted {
@@ -1764,8 +1764,8 @@ impl Agent {
                                     public = presentation.commentary(&events, true);
                                 }
                             }
-                            // Narration failure must not cancel or replay accepted tools,
-                            // invent model prose, or bypass normal command approvals.
+
+
                         }
                         reply.text = public;
                         has_public_update |= !reply.text.is_empty();

@@ -13,6 +13,7 @@ impl Default for ChatOptions {
             local_compat: true,
             settings: Default::default(),
             prompt: None,
+            images: Vec::new(),
             llama_binary: None,
             runtime_name: None,
             gguf: None,

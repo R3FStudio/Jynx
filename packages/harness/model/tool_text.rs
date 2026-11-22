@@ -1,5 +1,5 @@
-//! Recover explicitly terminated tool JSON without exposing protocol text.
-//! Bare JSON is never promoted into execution, and quoted examples stay literal.
+
+
 use super::{ModelToolCall, EMULATED_TOOL_CALL_ID};
 use serde_json::Value;
 use std::sync::atomic::Ordering;
@@ -69,8 +69,8 @@ pub(super) fn recover(text: &str, streaming: bool) -> (String, Vec<ModelToolCall
                             }
                             cursor += length + whitespace + close.len();
                         } else {
-                            // Hold protocol JSON even before the closing tag arrives.
-                            // A complete bare object is hidden, never executed.
+
+
                             cursor += length;
                         }
                         continue;
@@ -79,8 +79,8 @@ pub(super) fn recover(text: &str, streaming: bool) -> (String, Vec<ModelToolCall
                 }
                 _ if (streaming && (rest[1..].trim_start().starts_with('"') || rest[1..].trim().is_empty()))
                     || rest.contains("\"tool_name\"") || rest.contains("\"tool_args\"") => {
-                    // Metadata may precede the tool name. Hold JSON until it is
-                    // complete enough to distinguish prose data from protocol.
+
+
                     break;
                 }
                 _ if streaming && key_prefix(rest) => break,

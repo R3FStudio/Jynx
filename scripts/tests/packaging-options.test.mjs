@@ -33,3 +33,11 @@ test('missing desktop supports exclusion and direct excluded app packaging is a 
  await assert.rejects(packagingPlan({root,args:['--include-desktop']}),/desktop:clone/);
  assert.deepEqual((await packagingPlan({root,args:['--desktop-only','--exclude-desktop']})).steps,[]);
 });
+
+test('root desktop commands forward explicit target and release flags without affecting public packages',async t=>{
+ const root=await fixture(t);
+ const plan=await packagingPlan({root,args:['--desktop-only','--release','--platform','linux','--arch','x64']});
+ assert.deepEqual(plan.steps[0].args.slice(-6),['--','--release','--platform','linux','--arch','x64']);
+ await assert.rejects(packagingPlan({root,args:['--release']}),/require --desktop-only/);
+ await assert.rejects(packagingPlan({root,args:['--desktop-only','--arch']}),/Missing value/);
+});
