@@ -96,7 +96,8 @@
     "test:extension:integration": "node scripts/extension.mjs integration",
     "test:extension:packaged": "node scripts/extension.mjs packaged",
     "extension:clone": "node scripts/repositories.mjs clone code",
-    "install:all": "node scripts/install-dependencies.mjs"
+    "install:all": "node scripts/install-dependencies.mjs",
+    "postinstall": "node scripts/install-dependencies.mjs --standalone-only"
   },
   "devDependencies": {
     "tar": "7.5.22"
