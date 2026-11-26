@@ -1,3 +1,9 @@
+use jynx_protocol::ToolEvent;
+
+pub(super) fn is_successful_inspection(event: &ToolEvent) -> bool {
+    event.status == "completed"
+        && matches!(event.kind.as_str(), "read_file" | "read_skill_file" | "list_files" | "list_dir" | "search_files" | "find_files" | "workspace_symbols")
+}
 
 pub(super) async fn optional_opening(
     request: impl std::future::Future<Output = anyhow::Result<String>>,
@@ -13,6 +19,7 @@ pub(super) async fn optional_opening(
 pub(super) fn public_update(text: &str, allow_brief: bool) -> String {
     let mut fence: Option<(char, usize)> = None;
     let mut prose = Vec::new();
+    let mut paragraph_break = false;
     for line in text.lines() {
         let trimmed = line.trim_start();
         let marker = trimmed.chars().next().unwrap_or(' ');
@@ -25,7 +32,15 @@ pub(super) fn public_update(text: &str, allow_brief: bool) -> String {
             fence = Some((marker, count));
             continue;
         }
+        if trimmed.is_empty() {
+            paragraph_break = !prose.is_empty();
+            continue;
+        }
         if line.starts_with("    ") || line.starts_with('\t') { continue; }
+        if paragraph_break {
+            prose.push("");
+            paragraph_break = false;
+        }
         prose.push(line);
     }
     let text = prose.join("\n").trim().to_owned();
@@ -45,6 +60,13 @@ mod tests {
     fn routine_fragments_are_silent_but_necessary_questions_are_preserved() {
         assert!(public_update("Let me read the next file.", false).is_empty());
         assert_eq!(public_update("Which workspace should I use?", true), "Which workspace should I use?");
+        assert_eq!(public_update(UPDATE, false), UPDATE);
+    }
+    #[test]
+    fn progress_preserves_one_blank_line_between_paragraphs() {
+        let second = "The next check will confirm whether it works.";
+        let update = format!("{UPDATE}\r\n\r\n \r\n{second}\r\n\r\n");
+        assert_eq!(public_update(&update, false), format!("{UPDATE}\n\n{second}"));
         assert_eq!(public_update(UPDATE, false), UPDATE);
     }
     #[test]
