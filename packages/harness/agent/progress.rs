@@ -1,9 +1,3 @@
-use jynx_protocol::ToolEvent;
-
-pub(super) fn is_successful_inspection(event: &ToolEvent) -> bool {
-    event.status == "completed"
-        && matches!(event.kind.as_str(), "read_file" | "read_skill_file" | "list_files" | "list_dir" | "search_files" | "find_files" | "workspace_symbols")
-}
 
 pub(super) async fn optional_opening(
     request: impl std::future::Future<Output = anyhow::Result<String>>,

@@ -2,7 +2,7 @@ use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
-async fn quiet_inspection_batches_allow_a_short_finding_without_an_extra_model_request() {
+async fn missing_opening_is_generated_once_before_tools_and_later_brief_updates_stay_silent() {
     let root = std::env::temp_dir().join(format!("jynx-silent-tools-{}", Uuid::new_v4()));
     std::fs::create_dir(&root).unwrap();
     std::fs::write(root.join("fixture.txt"), "synthetic fixture").unwrap();
@@ -33,9 +33,6 @@ async fn quiet_inspection_batches_allow_a_short_finding_without_an_extra_model_r
                 assert!(!request["tools"].as_array().unwrap().is_empty(), "later silent or brief batches must not generate extra narration");
             }
             if step == 2 { assert!(request["messages"][0]["content"].as_str().unwrap().contains("same file-inspection pass")); }
-            if step == 3 {
-                assert!(request["messages"][0]["content"].as_str().unwrap().contains("Several inspections have finished"));
-            }
             if step == 4 {
                 let history = request["messages"].to_string();
                 assert!(!history.contains("HIDDEN_PROGRESS_CODE"));
@@ -48,7 +45,7 @@ async fn quiet_inspection_batches_allow_a_short_finding_without_an_extra_model_r
                 let content = match step {
                     0 => String::new(),
                     2 => "Let me read another file.".into(),
-                    _ => "The `fixture` contains plain text with no configuration entries.\n~~~rust\nHIDDEN_PROGRESS_CODE\n~~~".into(),
+                    _ => format!("{paragraph} The identifier is `fixture`.\n~~~rust\nHIDDEN_PROGRESS_CODE\n~~~"),
                 };
                 json!({"content":content,"tool_calls":[{"id":format!("read-{step}"),"type":"function","function":{"name":"read_file","arguments":"{\"path\":\"fixture.txt\"}"}}]})
             } else {
@@ -68,7 +65,7 @@ async fn quiet_inspection_batches_allow_a_short_finding_without_an_extra_model_r
     server.await.unwrap();
     let events: Vec<Value> = std::iter::from_fn(|| observed.try_recv().ok()).collect();
     let updates: Vec<_> = events.iter().filter(|event| event["type"] == "text_delta").collect();
-    assert_eq!(updates.len(), 2, "one opening and one concise finding, with routine narration suppressed");
+    assert_eq!(updates.len(), 2, "one generated opening and one substantial update, no small let-me phases");
     assert!(updates.iter().all(|event| !event.to_string().contains("HIDDEN_PROGRESS_CODE")));
     assert!(updates[1]["text"].as_str().unwrap().contains("`fixture`"));
     let opening = events.iter().position(|event| event["type"] == "text_delta").unwrap();
