@@ -77,19 +77,23 @@ async fn missing_opening_is_generated_once_before_tools_and_later_brief_updates_
 }
 
 #[tokio::test(start_paused = true)]
-async fn quick_reads_and_edits_have_visible_live_events_before_completion() {
+async fn quick_reads_edits_and_listings_have_visible_live_events_before_completion() {
     let root = std::env::temp_dir().join(format!("jynx-file-activity-{}", Uuid::new_v4()));
     std::fs::create_dir(&root).unwrap();
     std::fs::write(root.join("fixture.txt"), "before").unwrap();
     let agent = Agent::new("http://127.0.0.1:1/v1".into(), "fixture".into(), None, root.to_string_lossy().into(), 32768,
         AgentSettings {permission_mode:":danger-full-access".into(),final_answer_presentation:true,..Default::default()},false,ApprovalGate::default()).unwrap();
-    for (name, arguments) in [("read_file",json!({"path":"fixture.txt"})),("edit_file",json!({"path":"fixture.txt","old_text":"before","new_text":"after"}))] {
+    for (name, arguments, minimum_ms) in [
+        ("read_file", json!({"path":"fixture.txt"}), 11_500),
+        ("edit_file", json!({"path":"fixture.txt","old_text":"before","new_text":"after"}), 11_500),
+        ("list_files", json!({"path":"."}), 2400),
+    ] {
         let (events, mut observed) = tokio::sync::mpsc::unbounded_channel();
         let call = ModelToolCall {id:name.into(),name:name.into(),arguments};
         let start = tokio::time::Instant::now();
         let result = agent.execute_agent_call(&McpCatalog::empty(), &events, &call, name, "File activity", &Some("fixture.txt".into()), "batch", 0, 1).await.unwrap();
         assert_eq!(result.status,"completed");
-        assert!(start.elapsed() >= Duration::from_millis(11_500));
+        assert!(start.elapsed() >= Duration::from_millis(minimum_ms));
         let events:Vec<Value> = std::iter::from_fn(||observed.try_recv().ok()).collect();
         assert!(events.iter().position(|event|event["type"]=="tool_started").unwrap() < events.iter().position(|event|event["type"]=="tool_completed").unwrap());
     }

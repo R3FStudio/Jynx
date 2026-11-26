@@ -1048,9 +1048,15 @@ impl Agent {
 
 
 
-        if self.settings.final_answer_presentation && output_result.is_ok()
-            && matches!(call.name.as_str(), "read_file" | "read_skill_file" | "edit_file" | "write_file") {
-            tokio::time::sleep_until(visible_since + FILE_ACTIVITY_MINIMUM).await;
+        if self.settings.final_answer_presentation && output_result.is_ok() {
+            let minimum = match call.name.as_str() {
+                "read_file" | "read_skill_file" | "edit_file" | "write_file" => FILE_ACTIVITY_MINIMUM,
+                "list_files" | "list_dir" => Duration::from_millis(2400),
+                _ => Duration::ZERO,
+            };
+            if !minimum.is_zero() {
+                tokio::time::sleep_until(visible_since + minimum).await;
+            }
         }
         let (status, raw_output) = match output_result {
             Ok(output) => ("completed", output),
